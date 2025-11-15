@@ -1,17 +1,22 @@
 {% extends 'base.html' %}
 {% block content %}
-<h2>Leave History for {{ name }}</h2>
-<table border="1">
-<tr><th>Type</th><th>Start</th><th>End</th><th>Days</th><th>Status</th><th>Applied On</th></tr>
+<h3>Leave History for {{ name }}</h3>
+
+<table class="table table-bordered">
+<tr>
+  <th>Type</th><th>Start</th><th>End</th><th>Days</th><th>Status</th><th>Applied On</th>
+</tr>
+
 {% for h in leaves %}
 <tr>
-    <td>{{ h.leave_type }}</td>
-    <td>{{ h.start_date }}</td>
-    <td>{{ h.end_date }}</td>
-    <td>{{ h.days }}</td>
-    <td>{{ h.status }}</td>
-    <td>{{ h.applied_on }}</td>
+  <td>{{ h.leave_type }}</td>
+  <td>{{ h.start_date }}</td>
+  <td>{{ h.end_date }}</td>
+  <td>{{ h.days }}</td>
+  <td>{{ h.status }}</td>
+  <td>{{ h.applied_on }}</td>
 </tr>
 {% endfor %}
 </table>
+
 {% endblock %}
