@@ -1,0 +1,61 @@
+{% extends 'base.html' %}
+{% block content %}
+<h4>Admin Dashboard (Approvals)</h4>
+<h5>Employees & Balances</h5>
+<table class="table table-sm">
+  <thead><tr><th>Name</th><th>Role</th><th>Join Date</th><th>Entitlement</th><th>Balance</th></tr></thead>
+  <tbody>
+    {% for e in employees %}
+      <tr>
+        <td>{{ e['name'] }}</td>
+        <td>{{ e['role'] }}</td>
+        <td>{{ e['join_date'] }}</td>
+        <td>{{ e['entitlement'] }}</td>
+        <td>{{ '%.2f'|format(e['current_balance']) }}</td>
+      </tr>
+    {% endfor %}
+  </tbody>
+</table>
+
+<h5>Pending Requests</h5>
+<table class="table table-sm">
+  <thead><tr><th>ID</th><th>Employee</th><th>Type</th><th>Dates</th><th>Days</th><th>Reason</th><th>Status</th><th>Action</th></tr></thead>
+  <tbody>
+    {% for l in leaves %}
+      <tr>
+        <td>{{ l['id'] }}</td>
+        <td>{{ l['employee_name'] }}</td>
+        <td>{{ l['leave_type'] }}</td>
+        <td>{{ l['start_date'] }} → {{ l['end_date'] }}</td>
+        <td>{{ '%.2f'|format(l['days']) }}</td>
+        <td>{{ l['reason'] }}</td>
+        <td>{{ l['status'] }}</td>
+        <td>
+          {% if l['status'] == 'Pending' %}
+            <a href="/approve/{{ l['id'] }}" class="btn btn-sm btn-success">Approve</a>
+            <a href="/reject/{{ l['id'] }}" class="btn btn-sm btn-danger">Reject</a>
+          {% endif %}
+        </td>
+      </tr>
+    {% endfor %}
+  </tbody>
+</table>
+
+<h5>Quick Entitlement Update</h5>
+<form method="post" action="/update_entitlement" class="row g-2">
+  <div class="col-md-6">
+    <select name="name" class="form-select">
+      {% for e in employees %}
+        <option value="{{ e['name'] }}">{{ e['name'] }}</option>
+      {% endfor %}
+    </select>
+  </div>
+  <div class="col-md-3">
+    <input name="entitlement" placeholder="New entitlement (days)" class="form-control" />
+  </div>
+  <div class="col-md-3">
+    <button class="btn btn-primary">Update</button>
+  </div>
+</form>
+
+{% endblock %}
