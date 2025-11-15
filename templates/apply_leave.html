@@ -1,6 +1,7 @@
 {% extends 'base.html' %}
 {% block content %}
 <h4>Apply for Leave</h4>
+
 <form method="post" id="applyForm">
   <div class="mb-3">
     <label class="form-label">Employee</label>
@@ -10,7 +11,9 @@
         <option value="{{ e['name'] }}">{{ e['name'] }}</option>
       {% endfor %}
     </select>
-    <div class="form-text" id="balanceText" style="display:none;">Balance: <span id="balVal">0</span> days</div>
+    <div class="form-text" id="balanceText" style="display:none;">
+      Balance: <span id="balVal">0</span> days
+    </div>
   </div>
 
   <div class="mb-3">
@@ -26,11 +29,11 @@
   <div class="row">
     <div class="col-md-6 mb-3">
       <label class="form-label">Start Date</label>
-      <input type="date" name="start_date" id="startDate" class="form-control" required />
+      <input type="date" name="start_date" id="startDate" class="form-control" required>
     </div>
     <div class="col-md-6 mb-3">
       <label class="form-label">End Date</label>
-      <input type="date" name="end_date" id="endDate" class="form-control" required />
+      <input type="date" name="end_date" id="endDate" class="form-control" required>
     </div>
   </div>
 
@@ -41,7 +44,7 @@
 
   <div class="mb-3">
     <label class="form-label">Days (auto-calculated — you may override)</label>
-    <input type="number" step="0.25" name="days" id="daysInput" class="form-control" required />
+    <input type="number" step="0.25" name="days" id="daysInput" class="form-control" required>
   </div>
 
   <div class="mb-3">
@@ -53,4 +56,54 @@
 </form>
 
 <script>
-// (same JS you provided — unchanged)
+function fetchBalance(name){
+  if(!name) { $('#balanceText').hide(); return; }
+  $.get('/balance/' + encodeURIComponent(name), function(data){
+    $('#balVal').text(parseFloat(data.balance).toFixed(2));
+    $('#balanceText').show();
+  });
+}
+
+function calcDays(){
+  let s = $('#startDate').val();
+  let e = $('#endDate').val();
+  if(!s || !e) return;
+
+  let sd = new Date(s);
+  let ed = new Date(e);
+  let days = Math.floor((ed - sd) / (1000*60*60*24)) + 1;
+
+  if(isNaN(days) || days < 0) days = 0;
+  if($('#halfDay').is(':checked')) days -= 0.5;
+
+  $('#daysInput').val(days.toFixed(2));
+
+  let bal = parseFloat($('#balVal').text() || 0);
+  if(bal < days){
+    if($('#warn').length === 0){
+      $('#applyForm').prepend('<div id="warn" class="alert alert-warning">Warning: Applying more than available balance</div>');
+    }
+  } else {
+    $('#warn').remove();
+  }
+}
+
+$(document).ready(function(){
+  $('#employeeSelect').change(function(){ fetchBalance($(this).val()); });
+  $('#startDate, #endDate, #halfDay').change(calcDays);
+
+  $('#daysInput').change(function(){
+    let val = parseFloat($(this).val()) || 0;
+    let bal = parseFloat($('#balVal').text() || 0);
+    if(bal < val){
+      if($('#warn').length === 0){
+        $('#applyForm').prepend('<div id="warn" class="alert alert-warning">Warning: Applying more than available balance</div>');
+      }
+    } else {
+      $('#warn').remove();
+    }
+  });
+});
+</script>
+
+{% endblock %}
