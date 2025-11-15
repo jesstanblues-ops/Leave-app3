@@ -1,112 +1,36 @@
 {% extends 'base.html' %}
-
 {% block content %}
 <h4>Apply for Leave</h4>
-
 <form method="post" id="applyForm">
-
   <div class="mb-3">
     <label class="form-label">Employee</label>
     <select class="form-select" name="employee" id="employeeSelect" required>
       <option value="">-- Select name --</option>
-      {% for e in employees %}
-      <option value="{{ e['name'] }}">{{ e['name'] }}</option>
-      {% endfor %}
+      {% for e in employees %}<option value="{{ e['name'] }}">{{ e['name'] }}</option>{% endfor %}
     </select>
-    <div class="form-text mt-2" id="balanceText" style="display:none;">
-      Balance: <strong><span id="balVal">0</span></strong> days
-    </div>
+    <div class="form-text mt-1" id="balanceText" style="display:none;">Balance: <strong><span id="balVal">0</span></strong> days</div>
   </div>
-
   <div class="mb-3">
     <label class="form-label">Leave Type</label>
     <select class="form-select" name="leave_type" required>
-      <option value="Annual">Annual</option>
-      <option value="Medical">Medical</option>
-      <option value="Unpaid">Unpaid</option>
-      <option value="Emergency">Emergency</option>
+      <option>Annual</option>
+      <option>Medical</option>
+      <option>Unpaid</option>
+      <option>Emergency</option>
     </select>
   </div>
-
   <div class="row">
-    <div class="col-md-6 mb-3">
-      <label class="form-label">Start Date</label>
-      <input type="date" name="start_date" id="startDate" class="form-control" required>
-    </div>
-    <div class="col-md-6 mb-3">
-      <label class="form-label">End Date</label>
-      <input type="date" name="end_date" id="endDate" class="form-control" required>
-    </div>
+    <div class="col-md-6 mb-3"><label>Start Date</label><input type="date" name="start_date" id="startDate" class="form-control" required></div>
+    <div class="col-md-6 mb-3"><label>End Date</label><input type="date" name="end_date" id="endDate" class="form-control" required></div>
   </div>
-
-  <div class="form-check mb-3">
-    <input class="form-check-input" type="checkbox" id="halfDay" name="half" value="yes">
-    <label class="form-check-label" for="halfDay">Half-day (subtract 0.5 days)</label>
-  </div>
-
-  <div class="mb-3">
-    <label class="form-label">Total Days (auto-calculated)</label>
-    <input type="number" name="days" id="daysInput" step="0.5" class="form-control" required>
-  </div>
-
-  <div class="mb-3">
-    <label class="form-label">Reason</label>
-    <textarea name="reason" class="form-control"></textarea>
-  </div>
-
+  <div class="form-check mb-3"><input class="form-check-input" type="checkbox" id="halfDay" name="half" value="yes"><label class="form-check-label">Half-day (subtract 0.5)</label></div>
+  <div class="mb-3"><label>Days (auto-calculated)</label><input type="number" step="0.25" name="days" id="daysInput" class="form-control" required></div>
+  <div class="mb-3"><label>Reason</label><textarea name="reason" class="form-control"></textarea></div>
   <button class="btn btn-primary">Submit</button>
-
 </form>
-
-
 <script>
-function fetchBalance(name) {
-    if (!name) { $("#balanceText").hide(); return; }
-    $.get("/balance/" + encodeURIComponent(name), function(data) {
-        $("#balVal").text(parseFloat(data.balance).toFixed(2));
-        $("#balanceText").show();
-    });
-}
-
-function calcDays() {
-    let s = $("#startDate").val();
-    let e = $("#endDate").val();
-    if (!s || !e) return;
-
-    let sd = new Date(s);
-    let ed = new Date(e);
-    let days = (ed - sd) / (1000*60*60*24) + 1;
-
-    if (isNaN(days) || days < 0) days = 0;
-
-    if ($("#halfDay").is(":checked")) days -= 0.5;
-
-    $("#daysInput").val(days.toFixed(2));
-
-    showWarning(days);
-}
-
-function showWarning(days) {
-    let bal = parseFloat($("#balVal").text() || "0");
-    if (bal < days) {
-        if ($("#warn").length === 0)
-            $("#applyForm").prepend(`<div id="warn" class="alert alert-warning">Warning: You are applying more than your available balance.</div>`);
-    } else {
-        $("#warn").remove();
-    }
-}
-
-$(document).ready(function() {
-    $("#employeeSelect").change(function() {
-        fetchBalance($(this).val());
-    });
-
-    $("#startDate, #endDate, #halfDay").change(calcDays);
-
-    $("#daysInput").on("input", function() {
-        showWarning(parseFloat($(this).val()));
-    });
-});
+function fetchBalance(name){ if(!name){ $('#balanceText').hide(); return; } $.get('/balance/'+encodeURIComponent(name), function(data){ $('#balVal').text(parseFloat(data.balance).toFixed(2)); $('#balanceText').show(); }); }
+function calcDays(){ let s=$('#startDate').val(), e=$('#endDate').val(); if(!s||!e) return; let sd=new Date(s), ed=new Date(e); let days=Math.floor((ed-sd)/(1000*60*60*24))+1; if(isNaN(days)||days<0) days=0; if($('#halfDay').is(':checked')) days-=0.5; $('#daysInput').val(days.toFixed(2)); let bal=parseFloat($('#balVal').text()||0); if(bal<days){ if($('#warn').length==0) $('#applyForm').prepend('<div id="warn" class="alert alert-warning">Warning: Applying more than available balance</div>'); } else { $('#warn').remove(); } }
+$(document).ready(function(){ $('#employeeSelect').change(function(){ fetchBalance($(this).val()); }); $('#startDate, #endDate, #halfDay').change(calcDays); $('#daysInput').on('input', function(){ let val=parseFloat($(this).val())||0; let bal=parseFloat($('#balVal').text()||0); if(bal<val){ if($('#warn').length==0) $('#applyForm').prepend('<div id="warn" class="alert alert-warning">Warning: Applying more than available balance</div>'); } else { $('#warn').remove(); } }); });
 </script>
-
 {% endblock %}
