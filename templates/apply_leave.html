@@ -1,0 +1,33 @@
+{% extends 'base.html' %}
+{% block content %}
+<h2>Apply Leave</h2>
+<form method="POST">
+    <label>Name:</label>
+    <select name="employee">
+        {% for e in employees %}
+        <option value="{{ e.name }}">{{ e.name }}</option>
+        {% endfor %}
+    </select><br><br>
+
+    <label>Type:</label>
+    <select name="leave_type">
+        <option value="Annual">Annual</option>
+        <option value="Medical">Medical</option>
+        <option value="Emergency">Emergency</option>
+    </select><br><br>
+
+    <label>Start:</label>
+    <input type="date" name="start_date"><br><br>
+
+    <label>End:</label>
+    <input type="date" name="end_date"><br><br>
+
+    <label>Half Day:</label>
+    <input type="checkbox" name="half" value="yes"><br><br>
+
+    <label>Reason:</label>
+    <textarea name="reason"></textarea><br><br>
+
+    <button type="submit">Submit</button>
+</form>
+{% endblock %}
