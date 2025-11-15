@@ -77,6 +77,39 @@ def send_email(subject, body, to=None):
 
 # ---------------- Routes ----------------
 @app.route('/')
+@app.route("/download_excel")
+def download_excel():
+    import pandas as pd
+    from flask import send_file
+
+    conn = get_db()
+    rows = conn.execute("""
+        SELECT employee_name, leave_type, start_date, end_date, days, status, reason, applied_on
+        FROM leave_requests
+        ORDER BY applied_on DESC
+    """).fetchall()
+    conn.close()
+
+    if not rows:
+        flash("No leave records found.", "warning")
+        return redirect(url_for("admin_dashboard"))
+
+    # Convert SQL rows → DataFrame
+    df = pd.DataFrame(rows, columns=[
+        "Employee Name", "Leave Type", "Start Date", "End Date",
+        "Days", "Status", "Reason", "Applied On"
+    ])
+
+    # Save Excel file
+    file_path = "leave_records.xlsx"
+    df.to_excel(file_path, index=False)
+
+    return send_file(
+        file_path,
+        as_attachment=True,
+        download_name="leave_records.xlsx"
+    )
+
 def home():
     return redirect(url_for('apply_leave'))
 
