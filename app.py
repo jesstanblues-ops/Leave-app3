@@ -234,21 +234,28 @@ def update_entitlement():
     flash('Entitlement updated', 'success')
     return redirect(url_for('admin_dashboard'))
 
-@app.route('/update_balance', methods=['POST'])
+@app.route("/update_balance", methods=["POST"])
 def update_balance():
     name = request.form.get('name')
     new_bal = request.form.get('balance')
+
     try:
         bal_val = float(new_bal)
     except:
         flash('Invalid balance value', 'danger')
         return redirect(url_for('admin_dashboard'))
+
     conn = get_db()
-    conn.execute('UPDATE employees SET current_balance=? WHERE name=?', (bal_val, name))
+    conn.execute(
+        'UPDATE employees SET current_balance=? WHERE name=?',
+        (bal_val, name)
+    )
     conn.commit()
     conn.close()
+
     flash('Balance updated', 'success')
     return redirect(url_for('admin_dashboard'))
+
 
 # ---------------- Bootstrap DB on startup ----------------
 with app.app_context():
