@@ -77,7 +77,6 @@ def send_email(subject, body, to=None):
 
 # ---------------- Routes ----------------
 @app.route('/')
-
 def home():
     return redirect(url_for('apply_leave'))
 
