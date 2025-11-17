@@ -3,7 +3,9 @@ import sqlite3, os
 from datetime import datetime
 import config, smtplib
 
-DB_PATH = "/data/leave.db"
+DB_FOLDER = os.path.join(os.getcwd(), "data")
+os.makedirs(DB_FOLDER, exist_ok=True)
+DB_PATH = os.path.join(DB_FOLDER, "leave.db")
 
 app = Flask(__name__)
 app.secret_key = os.environ.get("FLASK_SECRET_KEY", "fallback-secret")
