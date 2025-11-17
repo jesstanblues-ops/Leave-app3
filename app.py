@@ -77,6 +77,10 @@ def send_email(subject, body, to=None):
 
 # ---------------- Routes ----------------
 @app.route('/')
+
+def home():
+    return redirect(url_for('apply_leave'))
+
 @app.route("/download_excel")
 def download_excel():
     import pandas as pd
@@ -94,13 +98,11 @@ def download_excel():
         flash("No leave records found.", "warning")
         return redirect(url_for("admin_dashboard"))
 
-    # Convert SQL rows → DataFrame
     df = pd.DataFrame(rows, columns=[
         "Employee Name", "Leave Type", "Start Date", "End Date",
         "Days", "Status", "Reason", "Applied On"
     ])
 
-    # Save Excel file
     file_path = "leave_records.xlsx"
     df.to_excel(file_path, index=False)
 
@@ -110,8 +112,6 @@ def download_excel():
         download_name="leave_records.xlsx"
     )
 
-def home():
-    return redirect(url_for('apply_leave'))
 
 @app.route('/balance/<name>')
 def balance(name):
