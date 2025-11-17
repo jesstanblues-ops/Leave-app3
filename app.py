@@ -56,26 +56,52 @@ def init_db():
         conn.commit()
     conn.close()
 
-# ---------------- Email helper ----------------
-def send_email(subject, body, to=None):
+
+# ---------------- Email helper (robust) ----------------
+import traceback
+
+def send_email(subject: str, body: str, to: str | None = None):
+    """
+    Send an email using SMTP. Uses env vars:
+      - EMAIL_PASSWORD  (required, Gmail App password or SMTP password)
+      - SMTP_SERVER     (optional, default smtp.gmail.com)
+      - SMTP_PORT       (optional, default 465)
+    If `to` is None, the function will fallback to config.ADMIN_EMAIL.
+    Errors are printed to logs (so you can see them in Render logs).
+    """
     if not getattr(config, 'ENABLE_EMAIL', False):
-        return
+        print("send_email: ENABLE_EMAIL is False in config.py — skipping email.")
+        return False
+
+    smtp_server = os.environ.get("SMTP_SERVER", getattr(config, "SMTP_SERVER", "smtp.gmail.com"))
+    smtp_port = int(os.environ.get("SMTP_PORT", getattr(config, "SMTP_PORT", 465)))
+    sender = os.environ.get("ADMIN_EMAIL", getattr(config, "ADMIN_EMAIL", None))
+    password = os.environ.get("EMAIL_PASSWORD")
+
+    if not sender:
+        print("send_email: ADMIN_EMAIL not configured in config.py or env.")
+        return False
+    if not password:
+        print("send_email: EMAIL_PASSWORD env var missing — cannot send email.")
+        return False
+
+    recipient = to if to else sender
+
+    message = f"Subject: {subject}\n\n{body}"
+
     try:
-        smtp_server = getattr(config, 'SMTP_SERVER', 'smtp.gmail.com')
-        smtp_port = getattr(config, 'SMTP_PORT', 587)
-        sender = config.ADMIN_EMAIL
-        password = os.environ.get('EMAIL_PASSWORD')
-        if not password:
-            print('EMAIL_PASSWORD not set, skipping send_email')
-            return
-        server = smtplib.SMTP(smtp_server, smtp_port)
-        server.starttls()
-        server.login(sender, password)
-        msg = f"Subject: {subject}\n\n{body}"
-        server.sendmail(sender, to or sender, msg)
-        server.quit()
-    except Exception as e:
-        print('Email error:', e)
+        # Use SMTP_SSL on port 465 by default for simplicity and reliability
+        import smtplib
+        with smtplib.SMTP_SSL(smtp_server, smtp_port, timeout=15) as server:
+            server.login(sender, password)
+            server.sendmail(sender, [recipient], message)
+        print(f"send_email: sent to {recipient} subject='{subject}'")
+        return True
+    except Exception as exc:
+        print("send_email: error sending email:", exc)
+        traceback.print_exc()
+        return False
+
 
 # ---------------- Routes ----------------
 @app.route('/')
@@ -152,7 +178,11 @@ def apply_leave():
         conn.close()
 
         # notify admin
-        send_email('New Leave Request', f"{emp} applied for {days} days ({ltype}).")
+        send_email(
+    'New Leave Request',
+    f"{emp} applied for {days} days ({ltype}).",
+    to="jessetan.ba@gmail.com"
+)
         flash('Leave request sent', 'success')
         return redirect(url_for('apply_leave'))
 
@@ -195,18 +225,30 @@ def admin_dashboard():
     return render_template('admin_dashboard.html', leaves=leaves, employees=emps)
 
 @app.route('/approve/<int:lid>')
+@app.route('/approve/<int:lid>')
 def approve(lid):
     conn = get_db()
     lr = conn.execute('SELECT * FROM leave_requests WHERE id=?', (lid,)).fetchone()
+
     if lr and lr['status'] == 'Pending':
         conn.execute("UPDATE leave_requests SET status='Approved' WHERE id=?", (lid,))
-        conn.execute("UPDATE employees SET current_balance = current_balance - ? WHERE name=?", (lr['days'], lr['employee_name']))
+        conn.execute(
+            "UPDATE employees SET current_balance = current_balance - ? WHERE name=?",
+            (lr['days'], lr['employee_name'])
+        )
         conn.commit()
-        # email notify to claycorp177
-        send_email('Leave Approved', f"{lr['employee_name']}'s leave ({lr['start_date']} → {lr['end_date']}) APPROVED.", to='claycorp177@gmail.com')
+
+        # Email notify
+        send_email(
+            'Leave Approved',
+            f"{lr['employee_name']}'s leave ({lr['start_date']} → {lr['end_date']}) APPROVED.",
+            to='claycorp177@gmail.com'
+        )
+
     conn.close()
     flash('Leave approved', 'success')
     return redirect(url_for('admin_dashboard'))
+
 
 @app.route('/reject/<int:lid>')
 def reject(lid):
@@ -295,6 +337,16 @@ def delete_employee():
 
     flash(f"Employee {name} removed.", "info")
     return redirect(url_for("admin_dashboard"))
+
+@app.route("/test_email")
+def test_email():
+    ok = send_email(
+        "Test Email from Leave App",
+        "This is a test email from your Leave App. If you received this, SMTP is working.",
+        to="jessetan.ba@gmail.com"
+    )
+    return f"Test email sent: {ok}. Check Render logs for details."
+
 
 
 
