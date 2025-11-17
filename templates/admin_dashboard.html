@@ -1,95 +1,118 @@
 {% extends 'base.html' %}
 {% block content %}
 
-<h3 class="mt-3">Admin Dashboard</h3>
+<h3>Admin Dashboard</h3>
 
-<!-- Download Records -->
-<p class="mt-3">
-    <a href="{{ url_for('download_excel') }}" class="btn btn-success">
-        📥 Download All Leave Records (Excel)
-    </a>
+<!-- Download Excel -->
+<p>
+    <a href="/download_excel" class="btn btn-success mb-3">📥 Download All Leave Records (Excel)</a>
 </p>
 
-<!-- Leave Requests Table -->
-<h4 class="mt-4">Leave Requests</h4>
-
+<!-- Leave Requests -->
+<h4>Leave Requests</h4>
 <table class="table table-sm table-bordered">
-    <thead class="table-light">
-        <tr>
-            <th>Employee</th>
-            <th>Type</th>
-            <th>Dates</th>
-            <th>Days</th>
-            <th>Status</th>
-            <th style="width:130px;">Action</th>
-        </tr>
-    </thead>
-    <tbody>
-    {% for l in leaves %}
-        <tr>
-            <td>{{ l.employee_name }}</td>
-            <td>{{ l.leave_type }}</td>
-            <td>{{ l.start_date }} → {{ l.end_date }}</td>
-            <td>{{ l.days }}</td>
-            <td>{{ l.status }}</td>
-            <td>
-                {% if l.status == 'Pending' %}
-                    <a href="/approve/{{ l.id }}" class="btn btn-success btn-sm">Approve</a>
-                    <a href="/reject/{{ l.id }}" class="btn btn-danger btn-sm mt-1">Reject</a>
-                {% else %}
-                    -
-                {% endif %}
-            </td>
-        </tr>
-    {% endfor %}
-    </tbody>
+<thead>
+<tr>
+    <th>Employee</th>
+    <th>Type</th>
+    <th>Dates</th>
+    <th>Days</th>
+    <th>Status</th>
+    <th>Action</th>
+</tr>
+</thead>
+<tbody>
+{% for l in leaves %}
+<tr>
+    <td>{{ l.employee_name }}</td>
+    <td>{{ l.leave_type }}</td>
+    <td>{{ l.start_date }} → {{ l.end_date }}</td>
+    <td>{{ l.days }}</td>
+    <td>{{ l.status }}</td>
+    <td>
+        {% if l.status == 'Pending' %}
+            <a class="btn btn-success btn-sm" href="/approve/{{ l.id }}">Approve</a>
+            <a class="btn btn-danger btn-sm" href="/reject/{{ l.id }}">Reject</a>
+        {% else %}
+            -
+        {% endif %}
+    </td>
+</tr>
+{% endfor %}
+</tbody>
 </table>
 
+
+<!-- Add Employee -->
+<h4 class="mt-4">Add New Employee</h4>
+<form method="POST" action="/add_employee" class="row g-2 mb-4">
+    <div class="col-md-3">
+        <input class="form-control" name="name" placeholder="Employee Name" required>
+    </div>
+    <div class="col-md-3">
+        <input type="date" class="form-control" name="join_date" required>
+    </div>
+    <div class="col-md-3">
+        <input type="number" step="0.5" class="form-control" name="entitlement" placeholder="Entitlement">
+    </div>
+    <div class="col-md-3">
+        <button class="btn btn-success w-100">Add Employee</button>
+    </div>
+</form>
+
+
 <!-- Employees Table -->
-<h4 class="mt-4">Employees</h4>
-
+<h4>Employees</h4>
 <table class="table table-sm table-bordered">
-    <thead class="table-light">
-        <tr>
-            <th>Name</th>
-            <th>Entitlement</th>
-            <th>Balance</th>
-            <th style="width:210px;">Update Entitlement</th>
-            <th style="width:210px;">Update Balance</th>
-        </tr>
-    </thead>
-    <tbody>
-    {% for e in employees %}
-        <tr>
-            <td>{{ e.name }}</td>
-            <td>{{ e.entitlement }}</td>
-            <td>{{ e.current_balance }}</td>
+<thead>
+<tr>
+    <th>Name</th>
+    <th>Entitlement</th>
+    <th>Balance</th>
+    <th>Update Entitlement</th>
+    <th>Update Balance</th>
+    <th>Delete</th>
+</tr>
+</thead>
+<tbody>
+{% for e in employees %}
+<tr>
+    <td>{{ e.name }}</td>
+    <td>{{ e.entitlement }}</td>
+    <td>{{ e.current_balance }}</td>
 
-            <!-- Update Entitlement -->
-            <td>
-                <form method="post" action="/update_entitlement" class="d-flex">
-                    <input type="hidden" name="name" value="{{ e.name }}">
-                    <input type="number" step="0.25" name="entitlement"
-                           class="form-control form-control-sm me-2"
-                           placeholder="{{ e.entitlement }}">
-                    <button class="btn btn-primary btn-sm">Save</button>
-                </form>
-            </td>
+    <!-- Update Entitlement -->
+    <td>
+        <form method="POST" action="/update_entitlement" class="d-flex">
+            <input type="hidden" name="name" value="{{ e.name }}">
+            <input type="number" step="0.25" name="entitlement"
+                   placeholder="{{ e.entitlement }}" class="form-control form-control-sm me-2">
+            <button class="btn btn-primary btn-sm">Save</button>
+        </form>
+    </td>
 
-            <!-- Update Balance -->
-            <td>
-                <form method="post" action="/update_balance" class="d-flex">
-                    <input type="hidden" name="name" value="{{ e.name }}">
-                    <input type="number" step="0.25" name="balance"
-                           class="form-control form-control-sm me-2"
-                           placeholder="{{ e.current_balance }}">
-                    <button class="btn btn-warning btn-sm">Save</button>
-                </form>
-            </td>
+    <!-- Update Balance -->
+    <td>
+        <form method="POST" action="/update_balance" class="d-flex">
+            <input type="hidden" name="name" value="{{ e.name }}">
+            <input type="number" step="0.25" name="balance"
+                   placeholder="{{ e.current_balance }}" class="form-control form-control-sm me-2">
+            <button class="btn btn-warning btn-sm">Save</button>
+        </form>
+    </td>
 
-        </tr>
-    {% endfor %}
-    </tbody>
+    <!-- Delete Employee -->
+    <td>
+        <form method="POST" action="/delete_employee"
+              onsubmit="return confirm('Delete {{ e.name }}?');">
+            <input type="hidden" name="name" value="{{ e.name }}">
+            <button class="btn btn-danger btn-sm">Delete</button>
+        </form>
+    </td>
+
+</tr>
+{% endfor %}
+</tbody>
 </table>
 
 {% endblock %}
