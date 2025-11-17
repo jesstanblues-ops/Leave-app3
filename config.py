@@ -1,7 +1,7 @@
 SYSTEM_START_YEAR = 2026
 
 ADMIN_EMAIL = "jessetan.ba@gmail.com"
-ENABLE_EMAIL = False
+ENABLE_EMAIL = True
 SMTP_SERVER = "smtp.gmail.com"
 SMTP_PORT = 587
 
