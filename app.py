@@ -255,6 +255,46 @@ def update_balance():
     flash('Balance updated', 'success')
     return redirect(url_for('admin_dashboard'))
 
+@app.route("/add_employee", methods=["POST"])
+def add_employee():
+    name = request.form.get("name")
+    join_date = request.form.get("join_date")
+    entitlement = request.form.get("entitlement")
+    role = "Staff"
+
+    if not name or not join_date:
+        flash("Name and join date required", "danger")
+        return redirect(url_for("admin_dashboard"))
+
+    try:
+        ent_val = float(entitlement)
+    except:
+        ent_val = 0
+
+    conn = get_db()
+    conn.execute("""
+        INSERT INTO employees (name, role, join_date, entitlement, current_balance)
+        VALUES (?, ?, ?, ?, ?)
+    """, (name, role, join_date, ent_val, ent_val))
+    conn.commit()
+    conn.close()
+
+    flash("Employee added successfully!", "success")
+    return redirect(url_for("admin_dashboard"))
+    
+@app.route("/delete_employee", methods=["POST"])
+def delete_employee():
+    name = request.form.get("name")
+
+    conn = get_db()
+    conn.execute("DELETE FROM employees WHERE name=?", (name,))
+    conn.commit()
+    conn.close()
+
+    flash(f"Employee {name} removed.", "info")
+    return redirect(url_for("admin_dashboard"))
+
+
 
 # ---------------- Bootstrap DB on startup ----------------
 with app.app_context():
