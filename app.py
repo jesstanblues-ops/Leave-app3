@@ -120,7 +120,56 @@ def send_email(subject, body, to):
 @app.route("/")
 def home():
     return redirect(url_for("apply_leave"))
+# ==========================================
+# DOWNLOAD EXCEL (MULTI-SHEET EXPORT)
+# ==========================================
+@app.route("/download_excel")
+def download_excel():
+    import pandas as pd
+    from flask import send_file
+    from openpyxl import Workbook
 
+    conn = get_db()
+    cur = conn.cursor()
+
+    # ---------------------------
+    # SHEET 1 — Leave Records
+    # ---------------------------
+    cur.execute("""
+        SELECT employee_name, leave_type, start_date, end_date, days, status, reason, applied_on
+        FROM leave_requests
+        ORDER BY applied_on DESC
+    """)
+    leave_rows = cur.fetchall()
+    df_leaves = pd.DataFrame(leave_rows)
+
+    # ---------------------------
+    # SHEET 2 — Employee Balances
+    # ---------------------------
+    cur.execute("""
+        SELECT name, entitlement, current_balance
+        FROM employees
+        ORDER BY name
+    """)
+    emp_rows = cur.fetchall()
+    df_employees = pd.DataFrame(emp_rows)
+
+    conn.close()
+
+    # ---------------------------
+    # Create Excel with 2 sheets
+    # ---------------------------
+    file_path = "leave_export.xlsx"
+
+    with pd.ExcelWriter(file_path, engine="openpyxl") as writer:
+        df_leaves.to_excel(writer, sheet_name="Leave Records", index=False)
+        df_employees.to_excel(writer, sheet_name="Balances", index=False)
+
+    return send_file(
+        file_path,
+        as_attachment=True,
+        download_name="leave_records.xlsx"
+    )
 
 @app.route("/balance/<name>")
 def balance(name):
