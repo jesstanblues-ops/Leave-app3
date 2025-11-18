@@ -1,36 +1,134 @@
 {% extends 'base.html' %}
 {% block content %}
+
 <h4>Apply for Leave</h4>
+
 <form method="post" id="applyForm">
+
+  <!-- Employee -->
   <div class="mb-3">
     <label class="form-label">Employee</label>
     <select class="form-select" name="employee" id="employeeSelect" required>
       <option value="">-- Select name --</option>
-      {% for e in employees %}<option value="{{ e['name'] }}">{{ e['name'] }}</option>{% endfor %}
+      {% for e in employees %}
+      <option value="{{ e.name }}">{{ e.name }}</option>
+      {% endfor %}
     </select>
-    <div class="form-text mt-1" id="balanceText" style="display:none;">Balance: <strong><span id="balVal">0</span></strong> days</div>
+
+    <div class="form-text" id="balanceText" style="display:none;">
+      Balance: <strong><span id="balVal">0</span> days</strong>
+    </div>
   </div>
+
+  <!-- Leave Type -->
   <div class="mb-3">
     <label class="form-label">Leave Type</label>
-    <select class="form-select" name="leave_type" required>
+    <select class="form-select" name="leave_type" id="leaveType">
       <option>Annual</option>
       <option>Medical</option>
       <option>Unpaid</option>
       <option>Emergency</option>
     </select>
   </div>
+
+  <!-- Dates -->
   <div class="row">
-    <div class="col-md-6 mb-3"><label>Start Date</label><input type="date" name="start_date" id="startDate" class="form-control" required></div>
-    <div class="col-md-6 mb-3"><label>End Date</label><input type="date" name="end_date" id="endDate" class="form-control" required></div>
+    <div class="col-md-6 mb-3">
+      <label class="form-label">Start Date</label>
+      <input type="date" name="start_date" id="startDate" class="form-control" required>
+    </div>
+    <div class="col-md-6 mb-3">
+      <label class="form-label">End Date</label>
+      <input type="date" name="end_date" id="endDate" class="form-control" required>
+    </div>
   </div>
-  <div class="form-check mb-3"><input class="form-check-input" type="checkbox" id="halfDay" name="half" value="yes"><label class="form-check-label">Half-day (subtract 0.5)</label></div>
-  <div class="mb-3"><label>Days (auto-calculated)</label><input type="number" step="0.25" name="days" id="daysInput" class="form-control" required></div>
-  <div class="mb-3"><label>Reason</label><textarea name="reason" class="form-control"></textarea></div>
+
+  <!-- Half day -->
+  <div class="form-check mb-3">
+    <input class="form-check-input" type="checkbox" id="halfDay" name="half">
+    <label class="form-check-label" for="halfDay">Half-day (subtract 0.5)</label>
+  </div>
+
+  <!-- Days Auto Calc -->
+  <div class="mb-3">
+    <label class="form-label">Total Days</label>
+    <input type="number" name="days" id="daysInput" class="form-control" step="0.5" required readonly>
+    <small class="text-muted">Automatically calculated</small>
+  </div>
+
+  <!-- Reason -->
+  <div class="mb-3">
+    <label class="form-label">Reason</label>
+    <textarea name="reason" class="form-control" placeholder="Optional"></textarea>
+  </div>
+
   <button class="btn btn-primary">Submit</button>
 </form>
+
 <script>
-function fetchBalance(name){ if(!name){ $('#balanceText').hide(); return; } $.get('/balance/'+encodeURIComponent(name), function(data){ $('#balVal').text(parseFloat(data.balance).toFixed(2)); $('#balanceText').show(); }); }
-function calcDays(){ let s=$('#startDate').val(), e=$('#endDate').val(); if(!s||!e) return; let sd=new Date(s), ed=new Date(e); let days=Math.floor((ed-sd)/(1000*60*60*24))+1; if(isNaN(days)||days<0) days=0; if($('#halfDay').is(':checked')) days-=0.5; $('#daysInput').val(days.toFixed(2)); let bal=parseFloat($('#balVal').text()||0); if(bal<days){ if($('#warn').length==0) $('#applyForm').prepend('<div id="warn" class="alert alert-warning">Warning: Applying more than available balance</div>'); } else { $('#warn').remove(); } }
-$(document).ready(function(){ $('#employeeSelect').change(function(){ fetchBalance($(this).val()); }); $('#startDate, #endDate, #halfDay').change(calcDays); $('#daysInput').on('input', function(){ let val=parseFloat($(this).val())||0; let bal=parseFloat($('#balVal').text()||0); if(bal<val){ if($('#warn').length==0) $('#applyForm').prepend('<div id="warn" class="alert alert-warning">Warning: Applying more than available balance</div>'); } else { $('#warn').remove(); } }); });
+function fetchBalance(name) {
+  if (!name) {
+    document.getElementById("balanceText").style.display = "none";
+    return;
+  }
+
+  fetch("/balance/" + encodeURIComponent(name))
+    .then(r => r.json())
+    .then(data => {
+      document.getElementById("balVal").innerText = Number(data.balance).toFixed(2);
+      document.getElementById("balanceText").style.display = "block";
+      calcDays();
+    });
+}
+
+function calcDays() {
+  let s = document.getElementById("startDate").value;
+  let e = document.getElementById("endDate").value;
+  if (!s || !e) return;
+
+  let sd = new Date(s);
+  let ed = new Date(e);
+
+  let days = (ed - sd) / (1000 * 60 * 60 * 24) + 1;
+
+  // invalid date
+  if (isNaN(days) || days < 0) {
+    document.getElementById("daysInput").value = "";
+    return;
+  }
+
+  // Half day
+  if (document.getElementById("halfDay").checked) {
+    days -= 0.5;
+  }
+
+  document.getElementById("daysInput").value = days.toFixed(1);
+
+  let bal = parseFloat(document.getElementById("balVal").innerText || 0);
+
+  // Warning if more than balance
+  let existingWarn = document.getElementById("warn");
+  if (days > bal) {
+    if (!existingWarn) {
+      let div = document.createElement("div");
+      div.id = "warn";
+      div.className = "alert alert-warning mt-2";
+      div.innerText = "Warning: Applying more than available balance.";
+      document.getElementById("applyForm").prepend(div);
+    }
+  } else if (existingWarn) {
+    existingWarn.remove();
+  }
+}
+
+// Event listeners
+document.getElementById("employeeSelect").addEventListener("change", function() {
+  fetchBalance(this.value);
+});
+
+document.getElementById("startDate").addEventListener("change", calcDays);
+document.getElementById("endDate").addEventListener("change", calcDays);
+document.getElementById("halfDay").addEventListener("change", calcDays);
 </script>
+
 {% endblock %}
