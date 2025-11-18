@@ -1,10 +1,5 @@
 SYSTEM_START_YEAR = 2026
 
-ADMIN_EMAIL = "jessetan.ba@gmail.com"
-ENABLE_EMAIL = True
-SMTP_SERVER = "smtp.gmail.com"
-SMTP_PORT = 587
-
 EMPLOYEES = [
     {"name": "YONG YUN CHIN", "role": "Staff", "join_date": "2008-08-08", "entitlement": 18},
     {"name": "JUBILIN MORIS", "role": "Staff", "join_date": "2012-01-01", "entitlement": 18},
