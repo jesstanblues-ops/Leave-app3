@@ -17,6 +17,7 @@
     <th>Type</th>
     <th>Dates</th>
     <th>Days</th>
+    <th>Reason</th>
     <th>Status</th>
     <th>Action</th>
 </tr>
@@ -27,7 +28,33 @@
     <td>{{ l.employee_name }}</td>
     <td>{{ l.leave_type }}</td>
     <td>{{ l.start_date }} → {{ l.end_date }}</td>
-    <td>{{ l.days }}</td>
+
+    <!-- FIXED half-day display -->
+    <td>{{ "%.2f"|format(l.days) }}</td>
+
+    <!-- NEW: always show reason (even blank) -->
+    <td>{{ l.reason if l.reason else "-" }}</td>
+
+    <td>{{ l.status }}</td>
+    <td>
+        {% if l.status == 'Pending' %}
+            <a class="btn btn-success btn-sm" href="/approve/{{ l.id }}">Approve</a>
+            <a class="btn btn-danger btn-sm" href="/reject/{{ l.id }}">Reject</a>
+        {% else %}
+            -
+        {% endif %}
+    </td>
+</tr>
+{% endfor %}
+</tbody>
+</table>
+
+{% for l in leaves %}
+<tr>
+    <td>{{ l.employee_name }}</td>
+    <td>{{ l.leave_type }}</td>
+    <td>{{ l.start_date }} → {{ l.end_date }}</td>
+    <td>{{ "%.2f"|format(l.days) }}</td>
     <td>{{ l.status }}</td>
     <td>
         {% if l.status == 'Pending' %}
