@@ -3,4 +3,6 @@ gunicorn
 pandas
 requests
 psycopg2-binary
+openpyxl
+
 
