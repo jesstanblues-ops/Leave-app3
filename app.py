@@ -1,7 +1,8 @@
 from flask import Flask, render_template, request, redirect, url_for, flash, jsonify, session
 import sqlite3, os
 from datetime import datetime
-import config, smtplib
+import config, requests, json
+
 
 DB_FOLDER = os.path.join(os.getcwd(), "data")
 os.makedirs(DB_FOLDER, exist_ok=True)
@@ -58,49 +59,46 @@ def init_db():
 
 
 # ---------------- Email helper (robust) ----------------
-import traceback
+import requests
+import json
 
-def send_email(subject: str, body: str, to: str | None = None):
+def send_email(subject, body, to=None):
     """
-    Send an email using SMTP. Uses env vars:
-      - EMAIL_PASSWORD  (required, Gmail App password or SMTP password)
-      - SMTP_SERVER     (optional, default smtp.gmail.com)
-      - SMTP_PORT       (optional, default 465)
-    If `to` is None, the function will fallback to config.ADMIN_EMAIL.
-    Errors are printed to logs (so you can see them in Render logs).
+    Send email using Brevo API (HTTPS).
+    Requires BREVO_API_KEY to be set in environment.
     """
-    if not getattr(config, 'ENABLE_EMAIL', False):
-        print("send_email: ENABLE_EMAIL is False in config.py — skipping email.")
-        return False
+    api_key = os.environ.get("BREVO_API_KEY")
+    if not api_key:
+        print("send_email: BREVO_API_KEY missing — cannot send email.")
+        return
 
-    smtp_server = os.environ.get("SMTP_SERVER", getattr(config, "SMTP_SERVER", "smtp.gmail.com"))
-    smtp_port = int(os.environ.get("SMTP_PORT", getattr(config, "SMTP_PORT", 465)))
-    sender = os.environ.get("ADMIN_EMAIL", getattr(config, "ADMIN_EMAIL", None))
-    password = os.environ.get("EMAIL_PASSWORD")
+    # Default: send to admin email if no recipient provided
+    recipient = to if to else config.ADMIN_EMAIL
 
-    if not sender:
-        print("send_email: ADMIN_EMAIL not configured in config.py or env.")
-        return False
-    if not password:
-        print("send_email: EMAIL_PASSWORD env var missing — cannot send email.")
-        return False
+    url = "https://api.brevo.com/v3/smtp/email"
 
-    recipient = to if to else sender
+    payload = {
+        "sender": {"email": config.ADMIN_EMAIL},
+        "to": [{"email": recipient}],
+        "subject": subject,
+        "htmlContent": f"<p>{body}</p>"
+    }
 
-    message = f"Subject: {subject}\n\n{body}"
+    headers = {
+        "accept": "application/json",
+        "api-key": api_key,
+        "content-type": "application/json"
+    }
 
     try:
-        # Use SMTP_SSL on port 465 by default for simplicity and reliability
-        import smtplib
-        with smtplib.SMTP_SSL(smtp_server, smtp_port, timeout=15) as server:
-            server.login(sender, password)
-            server.sendmail(sender, [recipient], message)
-        print(f"send_email: sent to {recipient} subject='{subject}'")
-        return True
-    except Exception as exc:
-        print("send_email: error sending email:", exc)
-        traceback.print_exc()
-        return False
+        response = requests.post(url, json=payload, headers=headers)
+        print("send_email response:", response.status_code, response.text)
+
+        if response.status_code not in (200, 201):
+            print("send_email: failed, see API response above.")
+
+    except Exception as e:
+        print("send_email: API exception:", e)
 
 
 # ---------------- Routes ----------------
