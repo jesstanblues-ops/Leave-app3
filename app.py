@@ -4,19 +4,18 @@ from datetime import datetime
 import config, requests, json
 import psycopg2
 import psycopg2.extras
-import ssl
 
 app = Flask(__name__)
 app.secret_key = os.environ.get("FLASK_SECRET_KEY", "fallback-secret")
 
 
-# =====================================================================
-#  POSTGRESQL DATABASE CONNECTION (SSL REQUIRED)
-# =====================================================================
+# ============================================================
+#  POSTGRESQL CONNECTION
+# ============================================================
 def get_db():
     db_url = os.environ.get("DATABASE_URL")
     if not db_url:
-        raise Exception("DATABASE_URL missing in environment")
+        raise Exception("DATABASE_URL missing in Render environment")
 
     conn = psycopg2.connect(
         db_url,
@@ -26,9 +25,9 @@ def get_db():
     return conn
 
 
-# =====================================================================
+# ============================================================
 #  INITIALIZE DATABASE
-# =====================================================================
+# ============================================================
 def init_db():
     conn = get_db()
     cur = conn.cursor()
@@ -41,7 +40,7 @@ def init_db():
             join_date TEXT,
             entitlement REAL,
             current_balance REAL DEFAULT 0
-        )
+        );
     """)
 
     cur.execute("""
@@ -55,19 +54,19 @@ def init_db():
             status TEXT,
             reason TEXT,
             applied_on TEXT
-        )
+        );
     """)
 
     conn.commit()
 
-    # Seed only if table empty
-    cur.execute("SELECT COUNT(*) FROM employees")
-    if cur.fetchone()["count"] == 0:
+    # Seed data only if empty
+    cur.execute("SELECT COUNT(*) AS c FROM employees")
+    if cur.fetchone()["c"] == 0:
         for emp in config.EMPLOYEES:
             cur.execute("""
                 INSERT INTO employees (name, role, join_date, entitlement, current_balance)
-                VALUES (%s, %s, %s, %s, %s)
-                ON CONFLICT (name) DO NOTHING
+                VALUES (%s,%s,%s,%s,%s)
+                ON CONFLICT (name) DO NOTHING;
             """, (
                 emp["name"],
                 emp.get("role", "Staff"),
@@ -81,13 +80,13 @@ def init_db():
     conn.close()
 
 
-# =====================================================================
-#  EMAIL — USING BREVO API
-# =====================================================================
+# ============================================================
+#  EMAIL (BREVO API)
+# ============================================================
 def send_email(subject, body, to):
     api_key = os.environ.get("BREVO_API_KEY")
     if not api_key:
-        print("Missing BREVO_API_KEY")
+        print("BREVO_API_KEY missing — skipping email")
         return
 
     url = "https://api.brevo.com/v3/smtp/email"
@@ -95,7 +94,7 @@ def send_email(subject, body, to):
     payload = {
         "sender": {
             "name": "Leave System",
-            "email": "jessetan.ba@gmail.com"
+            "email": "jessetan.ba@gmail.com"  # MUST BE VERIFIED IN BREVO
         },
         "to": [{"email": to}],
         "subject": subject,
@@ -112,12 +111,12 @@ def send_email(subject, body, to):
         r = requests.post(url, json=payload, headers=headers)
         print("Brevo response:", r.status_code, r.text)
     except Exception as e:
-        print("Brevo send_email error:", e)
+        print("Email send error:", e)
 
 
-# =====================================================================
+# ============================================================
 # ROUTES
-# =====================================================================
+# ============================================================
 @app.route("/")
 def home():
     return redirect(url_for("apply_leave"))
@@ -129,9 +128,7 @@ def balance(name):
     cur = conn.cursor()
     cur.execute("SELECT current_balance FROM employees WHERE name=%s", (name,))
     row = cur.fetchone()
-    cur.close()
     conn.close()
-
     return jsonify({"balance": float(row["current_balance"]) if row else 0})
 
 
@@ -151,7 +148,7 @@ def apply_leave():
             s = datetime.strptime(request.form["start_date"], "%Y-%m-%d").date()
             e = datetime.strptime(request.form["end_date"], "%Y-%m-%d").date()
         except:
-            flash("Invalid date", "danger")
+            flash("Invalid dates", "danger")
             return redirect(url_for("apply_leave"))
 
         half = request.form.get("half") == "on"
@@ -167,9 +164,7 @@ def apply_leave():
             INSERT INTO leave_requests (employee_name, leave_type, start_date, end_date, days, status, reason, applied_on)
             VALUES (%s,%s,%s,%s,%s,%s,%s,%s)
         """, (emp, ltype, s.isoformat(), e.isoformat(), days, "Pending", reason, datetime.now().isoformat()))
-
         conn.commit()
-        cur.close()
         conn.close()
 
         send_email(
@@ -178,7 +173,7 @@ def apply_leave():
             to="jessetan.ba@gmail.com"
         )
 
-        flash("Leave request submitted.", "success")
+        flash("Leave request submitted", "success")
         return redirect(url_for("apply_leave"))
 
     return render_template("apply_leave.html", employees=employees)
@@ -194,9 +189,9 @@ def history(name):
     return render_template("history.html", leaves=leaves, name=name)
 
 
-# =====================================================================
-# ADMIN LOGIN
-# =====================================================================
+# ============================================================
+# ADMIN AUTH
+# ============================================================
 @app.route("/admin_login", methods=["GET", "POST"])
 def admin_login():
     error = None
@@ -216,9 +211,9 @@ def admin_logout():
     return redirect(url_for("admin_login"))
 
 
-# =====================================================================
+# ============================================================
 # ADMIN DASHBOARD
-# =====================================================================
+# ============================================================
 @app.route("/admin")
 def admin_dashboard():
     if not session.get("admin_logged_in"):
@@ -234,9 +229,12 @@ def admin_dashboard():
     employees = cur.fetchall()
 
     conn.close()
-
     return render_template("admin_dashboard.html", leaves=leaves, employees=employees)
 
+
+# ============================================================
+# RENAME EMPLOYEE (FIXED FOR POSTGRES)
+# ============================================================
 @app.route("/update_employee_name", methods=["POST"])
 def update_employee_name():
     old_name = request.form.get("old_name")
@@ -247,30 +245,25 @@ def update_employee_name():
         return redirect(url_for("admin_dashboard"))
 
     conn = get_db()
+    cur = conn.cursor()
 
-    # Update employee table
-    conn.execute(
-        "UPDATE employees SET name=? WHERE name=?",
-        (new_name, old_name)
-    )
+    try:
+        cur.execute("UPDATE employees SET name=%s WHERE name=%s", (new_name, old_name))
+        cur.execute("UPDATE leave_requests SET employee_name=%s WHERE employee_name=%s", (new_name, old_name))
+        conn.commit()
+    except Exception as e:
+        conn.rollback()
+        flash(f"Rename failed: {e}", "danger")
+    finally:
+        conn.close()
 
-    # Update leave history too
-    conn.execute(
-        "UPDATE leave_requests SET employee_name=? WHERE employee_name=?",
-        (new_name, old_name)
-    )
-
-    conn.commit()
-    conn.close()
-
-    flash(f"Employee name updated: {old_name} → {new_name}", "success")
+    flash(f"Employee renamed: {old_name} → {new_name}", "success")
     return redirect(url_for("admin_dashboard"))
 
 
-
-# =====================================================================
-# APPROVE / REJECT
-# =====================================================================
+# ============================================================
+# APPROVE / REJECT LEAVE
+# ============================================================
 @app.route("/approve/<int:lid>")
 def approve(lid):
     conn = get_db()
@@ -281,10 +274,8 @@ def approve(lid):
 
     if lr and lr["status"] == "Pending":
         cur.execute("UPDATE leave_requests SET status='Approved' WHERE id=%s", (lid,))
-        cur.execute(
-            "UPDATE employees SET current_balance = current_balance - %s WHERE name=%s",
-            (lr["days"], lr["employee_name"])
-        )
+        cur.execute("UPDATE employees SET current_balance=current_balance-%s WHERE name=%s",
+                    (lr["days"], lr["employee_name"]))
         conn.commit()
 
         send_email(
@@ -294,7 +285,7 @@ def approve(lid):
         )
 
     conn.close()
-    flash("Leave approved.", "success")
+    flash("Leave approved", "success")
     return redirect(url_for("admin_dashboard"))
 
 
@@ -317,13 +308,13 @@ def reject(lid):
         )
 
     conn.close()
-    flash("Leave rejected.", "info")
+    flash("Leave rejected", "info")
     return redirect(url_for("admin_dashboard"))
 
 
-# =====================================================================
+# ============================================================
 # UPDATE ENTITLEMENT / BALANCE
-# =====================================================================
+# ============================================================
 @app.route("/update_entitlement", methods=["POST"])
 def update_entitlement():
     name = request.form["name"]
@@ -365,18 +356,17 @@ def update_balance():
     return redirect(url_for("admin_dashboard"))
 
 
-# =====================================================================
-# EMPLOYEE ADD / DELETE
-# =====================================================================
+# ============================================================
+# ADD / DELETE EMPLOYEE
+# ============================================================
 @app.route("/add_employee", methods=["POST"])
 def add_employee():
     name = request.form.get("name")
     join_date = request.form.get("join_date")
     entitlement = request.form.get("entitlement")
-    role = "Staff"
 
     if not name or not join_date:
-        flash("Name and join date required", "danger")
+        flash("Name & join date required", "danger")
         return redirect(url_for("admin_dashboard"))
 
     try:
@@ -389,8 +379,7 @@ def add_employee():
     cur.execute("""
         INSERT INTO employees (name, role, join_date, entitlement, current_balance)
         VALUES (%s,%s,%s,%s,%s)
-    """, (name, role, join_date, ent_val, ent_val))
-
+    """, (name, "Staff", join_date, ent_val, ent_val))
     conn.commit()
     conn.close()
 
@@ -400,7 +389,7 @@ def add_employee():
 
 @app.route("/delete_employee", methods=["POST"])
 def delete_employee():
-    name = request.form.get("name")
+    name = request.form["name"]
 
     conn = get_db()
     cur = conn.cursor()
@@ -408,32 +397,33 @@ def delete_employee():
     conn.commit()
     conn.close()
 
-    flash(f"Employee {name} removed", "info")
+    flash(f"{name} removed", "info")
     return redirect(url_for("admin_dashboard"))
 
 
-# =====================================================================
+# ============================================================
 # TEST EMAIL
-# =====================================================================
+# ============================================================
 @app.route("/test_email")
 def test_email():
     send_email(
         "Test Email",
-        "If you received this, Brevo email works!",
+        "If you received this, email is working!",
         to="jessetan.ba@gmail.com"
     )
-    return "Test email sent — check your inbox & logs."
+    return "Test email sent. Check logs."
 
 
-# =====================================================================
-# BOOTSTRAP DB
-# =====================================================================
+# ============================================================
+# INIT DB ON START
+# ============================================================
 with app.app_context():
     init_db()
 
-# =====================================================================
+
+# ============================================================
 # RUN LOCAL
-# =====================================================================
+# ============================================================
 if __name__ == "__main__":
     init_db()
     app.run(debug=True, host="0.0.0.0")
