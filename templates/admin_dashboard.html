@@ -71,6 +71,7 @@
     <th>Balance</th>
     <th>Update Entitlement</th>
     <th>Update Balance</th>
+    <th>Rename</th>
     <th>Delete</th>
 </tr>
 </thead>
@@ -98,6 +99,16 @@
             <input type="number" step="0.25" name="balance"
                    placeholder="{{ e.current_balance }}" class="form-control form-control-sm me-2">
             <button class="btn btn-warning btn-sm">Save</button>
+        </form>
+    </td>
+
+    <!-- Rename Employee -->
+    <td>
+        <form method="POST" action="/update_employee_name" class="d-flex">
+            <input type="hidden" name="old_name" value="{{ e.name }}">
+            <input type="text" name="new_name" placeholder="New name"
+                   class="form-control form-control-sm me-2">
+            <button class="btn btn-secondary btn-sm">Rename</button>
         </form>
     </td>
 
