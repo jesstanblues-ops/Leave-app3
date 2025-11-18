@@ -59,27 +59,28 @@ def init_db():
 
 
 # ---------------- Email helper (robust) ----------------
+# -----------------------------
+# Brevo Email Sender (FINAL)
+# -----------------------------
 import requests
 import json
 
-def send_email(subject, body, to=None):
-    """
-    Send email using Brevo API (HTTPS).
-    Requires BREVO_API_KEY to be set in environment.
-    """
+def send_email(subject, body, to):
     api_key = os.environ.get("BREVO_API_KEY")
     if not api_key:
-        print("send_email: BREVO_API_KEY missing — cannot send email.")
+        print("BREVO_API_KEY missing — no email sent.")
         return
-
-    # Default: send to admin email if no recipient provided
-    recipient = to if to else config.ADMIN_EMAIL
 
     url = "https://api.brevo.com/v3/smtp/email"
 
     payload = {
-        "sender": {"email": config.ADMIN_EMAIL},
-        "to": [{"email": recipient}],
+        "sender": {
+            "name": "Leave System",
+            "email": "jessetan.ba@gmail.com"
+        },
+        "to": [
+            {"email": to}
+        ],
         "subject": subject,
         "htmlContent": f"<p>{body}</p>"
     }
@@ -92,13 +93,9 @@ def send_email(subject, body, to=None):
 
     try:
         response = requests.post(url, json=payload, headers=headers)
-        print("send_email response:", response.status_code, response.text)
-
-        if response.status_code not in (200, 201):
-            print("send_email: failed, see API response above.")
-
+        print("Brevo email response:", response.status_code, response.text)
     except Exception as e:
-        print("send_email: API exception:", e)
+        print("send_email error:", e)
 
 
 # ---------------- Routes ----------------
