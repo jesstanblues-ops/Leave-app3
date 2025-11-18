@@ -237,6 +237,36 @@ def admin_dashboard():
 
     return render_template("admin_dashboard.html", leaves=leaves, employees=employees)
 
+@app.route("/update_employee_name", methods=["POST"])
+def update_employee_name():
+    old_name = request.form.get("old_name")
+    new_name = request.form.get("new_name")
+
+    if not new_name:
+        flash("New name cannot be empty", "danger")
+        return redirect(url_for("admin_dashboard"))
+
+    conn = get_db()
+
+    # Update employee table
+    conn.execute(
+        "UPDATE employees SET name=? WHERE name=?",
+        (new_name, old_name)
+    )
+
+    # Update leave history too
+    conn.execute(
+        "UPDATE leave_requests SET employee_name=? WHERE employee_name=?",
+        (new_name, old_name)
+    )
+
+    conn.commit()
+    conn.close()
+
+    flash(f"Employee name updated: {old_name} → {new_name}", "success")
+    return redirect(url_for("admin_dashboard"))
+
+
 
 # =====================================================================
 # APPROVE / REJECT
