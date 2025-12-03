@@ -1,0 +1,82 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Leave Calendar</title>
+    <style>
+        table { width: 100%; border-collapse: collapse; }
+        th, td {
+            border: 1px solid #ccc;
+            padding: 10px;
+            vertical-align: top;
+            height: 80px;
+        }
+        .leave-box {
+            background: #ffe9b3;
+            padding: 3px 5px;
+            border-radius: 4px;
+            margin-bottom: 4px;
+        }
+    </style>
+</head>
+<body>
+
+<h2>Leave Calendar</h2>
+
+<label>Choose Month:</label>
+<input type="month" id="monthPicker">
+
+<table id="calendarTable"></table>
+
+<script>
+document.getElementById("monthPicker").addEventListener("change", function() {
+    loadCalendar(this.value);
+});
+
+function loadCalendar(month) {
+    fetch(`/calendar?month=${month}`)
+    .then(res => res.json())
+    .then(data => renderCalendar(month, data));
+}
+
+function renderCalendar(month, leaves) {
+    const [year, mon] = month.split("-").map(Number);
+    const first = new Date(year, mon - 1, 1);
+    const last = new Date(year, mon, 0);
+
+    let html = "<tr>";
+    const days = ["Sun","Mon","Tue","Wed","Thu","Fri","Sat"];
+    days.forEach(d => html += `<th>${d}</th>`);
+    html += "</tr><tr>";
+
+    for (let i=0; i<first.getDay(); i++) html += "<td></td>";
+
+    for (let day=1; day <= last.getDate(); day++) {
+        const dateStr = `${month}-${String(day).padStart(2,'0')}`;
+
+        html += "<td>";
+        html += `<strong>${day}</strong><br>`;
+
+        if (leaves[dateStr]) {
+            leaves[dateStr].forEach(l => {
+                html += `<div class='leave-box'>${l.name} (${l.type})</div>`;
+            });
+        }
+
+        html += "</td>";
+
+        if ((first.getDay() + day) % 7 === 0) html += "</tr><tr>";
+    }
+
+    html += "</tr>";
+
+    document.getElementById("calendarTable").innerHTML = html;
+}
+
+const now = new Date();
+const defaultMonth = `${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,'0')}`;
+document.getElementById("monthPicker").value = defaultMonth;
+loadCalendar(defaultMonth);
+</script>
+
+</body>
+</html>
