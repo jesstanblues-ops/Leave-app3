@@ -505,20 +505,24 @@ def calendar_api():
         s = datetime.strptime(r["start_date"], "%Y-%m-%d").date()
         e = datetime.strptime(r["end_date"], "%Y-%m-%d").date()
 
-        current = max(s, start_month)
-        last = min(e, end_month)
+        from datetime import timedelta
 
-        while current < last:
-            d = current.isoformat()
-            if d not in calendar:
-                calendar[d] = []
+current = max(s, start_month)
+last = min(e, end_month)
 
-            calendar[d].append({
-                "name": r["employee_name"],
-                "type": r["leave_type"]
-            })
+while current <= last:     # FIXED: include the last day
+    d = current.isoformat()
 
-            current = current.replace(day=current.day + 1)
+    if d not in calendar:
+        calendar[d] = []
+
+    calendar[d].append({
+        "name": r["employee_name"],
+        "type": r["leave_type"]
+    })
+
+    current += timedelta(days=1)   # FIXED: safer day increment
+
 
     return jsonify(calendar)
 # ============================================================
