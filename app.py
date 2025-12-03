@@ -487,7 +487,6 @@ def calendar_api():
     conn = get_db()
     cur = conn.cursor()
 
-    # Fetch approved leaves that touch that month
     cur.execute("""
         SELECT employee_name, leave_type, start_date, end_date
         FROM leave_requests
@@ -498,33 +497,33 @@ def calendar_api():
     rows = cur.fetchall()
     conn.close()
 
-    # Build the output
     calendar = {}
+    from datetime import timedelta
 
     for r in rows:
         s = datetime.strptime(r["start_date"], "%Y-%m-%d").date()
         e = datetime.strptime(r["end_date"], "%Y-%m-%d").date()
 
-        from datetime import timedelta
+        # Bound leave range to selected month
+        current = max(s, start_month)
+        last = min(e, end_month)
 
-current = max(s, start_month)
-last = min(e, end_month)
+        # INCLUDE FINAL DAY
+        while current <= last:
+            d = current.isoformat()
 
-while current <= last:     # FIXED: include the last day
-    d = current.isoformat()
+            if d not in calendar:
+                calendar[d] = []
 
-    if d not in calendar:
-        calendar[d] = []
+            calendar[d].append({
+                "name": r["employee_name"],
+                "type": r["leave_type"]
+            })
 
-    calendar[d].append({
-        "name": r["employee_name"],
-        "type": r["leave_type"]
-    })
-
-    current += timedelta(days=1)   # FIXED: safer day increment
-
+            current += timedelta(days=1)
 
     return jsonify(calendar)
+
 # ============================================================
 # SIMPLE HTML CALENDAR VIEW
 # ============================================================
