@@ -2,21 +2,62 @@
 <html>
 <head>
     <title>Leave Calendar</title>
+
     <style>
-        table { width: 100%; border-collapse: collapse; }
+        body {
+            font-family: Arial, sans-serif;
+            margin: 20px;
+        }
+
+        h2 {
+            margin-bottom: 10px;
+        }
+
+        label {
+            font-weight: bold;
+        }
+
+        /* Clean 7-column layout */
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            table-layout: fixed;   /* Equal width for all days */
+            margin-top: 15px;
+        }
+
         th, td {
             border: 1px solid #ccc;
             padding: 10px;
             vertical-align: top;
-            height: 80px;
+            height: 110px;        /* Consistent height */
+            width: 14.28%;        /* 100 / 7 days */
+            box-sizing: border-box;
+            word-wrap: break-word;
         }
+
+        th {
+            background: #f0f0f0;
+            text-align: center;
+            font-size: 16px;
+            font-weight: bold;
+        }
+
+        td strong {
+            display: block;
+            font-size: 15px;
+            margin-bottom: 5px;
+        }
+
         .leave-box {
-            background: #ffe9b3;
-            padding: 3px 5px;
-            border-radius: 4px;
-            margin-bottom: 4px;
+            background: #ffe7b0;
+            padding: 5px 7px;
+            border-radius: 5px;
+            margin-bottom: 5px;
+            font-size: 14px;
+            line-height: 1.2em;
         }
     </style>
+
 </head>
 <body>
 
@@ -28,6 +69,8 @@
 <table id="calendarTable"></table>
 
 <script>
+
+/* When month is changed, reload calendar */
 document.getElementById("monthPicker").addEventListener("change", function() {
     loadCalendar(this.value);
 });
@@ -39,22 +82,29 @@ function loadCalendar(month) {
 }
 
 function renderCalendar(month, leaves) {
+
     const [year, mon] = month.split("-").map(Number);
     const first = new Date(year, mon - 1, 1);
     const last = new Date(year, mon, 0);
 
     let html = "<tr>";
     const days = ["Sun","Mon","Tue","Wed","Thu","Fri","Sat"];
+
     days.forEach(d => html += `<th>${d}</th>`);
     html += "</tr><tr>";
 
-    for (let i=0; i<first.getDay(); i++) html += "<td></td>";
+    /* Add padding before month starts */
+    for (let i=0; i<first.getDay(); i++) {
+        html += "<td></td>";
+    }
 
+    /* Fill calendar days */
     for (let day=1; day <= last.getDate(); day++) {
+
         const dateStr = `${month}-${String(day).padStart(2,'0')}`;
 
         html += "<td>";
-        html += `<strong>${day}</strong><br>`;
+        html += `<strong>${day}</strong>`;
 
         if (leaves[dateStr]) {
             leaves[dateStr].forEach(l => {
@@ -64,7 +114,10 @@ function renderCalendar(month, leaves) {
 
         html += "</td>";
 
-        if ((first.getDay() + day) % 7 === 0) html += "</tr><tr>";
+        /* Wrap row every 7 columns */
+        if ((first.getDay() + day) % 7 === 0) {
+            html += "</tr><tr>";
+        }
     }
 
     html += "</tr>";
@@ -72,10 +125,12 @@ function renderCalendar(month, leaves) {
     document.getElementById("calendarTable").innerHTML = html;
 }
 
+/* Auto-load current month */
 const now = new Date();
 const defaultMonth = `${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,'0')}`;
 document.getElementById("monthPicker").value = defaultMonth;
 loadCalendar(defaultMonth);
+
 </script>
 
 </body>
