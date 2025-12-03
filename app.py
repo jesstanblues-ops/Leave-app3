@@ -462,6 +462,73 @@ def test_email():
     )
     return "Test email sent. Check logs."
 
+# ============================================================
+# SIMPLE MONTHLY CALENDAR API
+# ============================================================
+@app.route("/calendar")
+def calendar_api():
+    month = request.args.get("month")  # format: YYYY-MM
+
+    if not month:
+        return jsonify({"error": "month=YYYY-MM required"}), 400
+
+    try:
+        year, mon = map(int, month.split("-"))
+    except:
+        return jsonify({"error": "Invalid month format"}), 400
+
+    # Start + End of month
+    start_month = datetime(year, mon, 1).date()
+    if mon == 12:
+        end_month = datetime(year + 1, 1, 1).date()
+    else:
+        end_month = datetime(year, mon + 1, 1).date()
+
+    conn = get_db()
+    cur = conn.cursor()
+
+    # Fetch approved leaves that touch that month
+    cur.execute("""
+        SELECT employee_name, leave_type, start_date, end_date
+        FROM leave_requests
+        WHERE status='Approved'
+          AND NOT (end_date < %s OR start_date >= %s)
+    """, (start_month.isoformat(), end_month.isoformat()))
+
+    rows = cur.fetchall()
+    conn.close()
+
+    # Build the output
+    calendar = {}
+
+    for r in rows:
+        s = datetime.strptime(r["start_date"], "%Y-%m-%d").date()
+        e = datetime.strptime(r["end_date"], "%Y-%m-%d").date()
+
+        current = max(s, start_month)
+        last = min(e, end_month)
+
+        while current < last:
+            d = current.isoformat()
+            if d not in calendar:
+                calendar[d] = []
+
+            calendar[d].append({
+                "name": r["employee_name"],
+                "type": r["leave_type"]
+            })
+
+            current = current.replace(day=current.day + 1)
+
+    return jsonify(calendar)
+# ============================================================
+# SIMPLE HTML CALENDAR VIEW
+# ============================================================
+@app.route("/calendar_view")
+def calendar_view():
+    return render_template("calendar_view.html")
+
+
 
 # ============================================================
 # INIT DB ON START
