@@ -3,14 +3,6 @@
 
 <h4>Apply for Leave</h4>
 
-<div style="margin-bottom: 20px;">
-    <a href="/calendar_view" 
-       style="background:#007bff; color:white; padding:10px 15px; 
-              text-decoration:none; border-radius:5px;">
-        View Leave Calendar
-    </a>
-</div>
-
 <form method="post" id="applyForm">
 
   <!-- Employee -->
@@ -73,6 +65,22 @@
   <button class="btn btn-primary">Submit</button>
 </form>
 
+<!-- =============================== -->
+<!--      EMBEDDED LEAVE CALENDAR    -->
+<!-- =============================== -->
+
+<hr>
+<h3>Leave Calendar</h3>
+
+<iframe 
+    src="/calendar_view" 
+    style="width:100%; height:650px; border:none; margin-top:15px;">
+</iframe>
+
+<!-- =============================== -->
+<!--         END CALENDAR           -->
+<!-- =============================== -->
+
 <script>
 function fetchBalance(name) {
   if (!name) {
@@ -99,13 +107,11 @@ function calcDays() {
 
   let days = (ed - sd) / (1000 * 60 * 60 * 24) + 1;
 
-  // invalid date
   if (isNaN(days) || days < 0) {
     document.getElementById("daysInput").value = "";
     return;
   }
 
-  // Half day
   if (document.getElementById("halfDay").checked) {
     days -= 0.5;
   }
@@ -114,7 +120,6 @@ function calcDays() {
 
   let bal = parseFloat(document.getElementById("balVal").innerText || 0);
 
-  // Warning if more than balance
   let existingWarn = document.getElementById("warn");
   if (days > bal) {
     if (!existingWarn) {
@@ -129,7 +134,6 @@ function calcDays() {
   }
 }
 
-// Event listeners
 document.getElementById("employeeSelect").addEventListener("change", function() {
   fetchBalance(this.value);
 });
