@@ -12,17 +12,46 @@ app.secret_key = os.environ.get("FLASK_SECRET_KEY", "fallback-secret")
 # ============================================================
 #  POSTGRESQL CONNECTION
 # ============================================================
+from urllib.parse import urlsplit, parse_qsl, urlencode, urlunsplit, unquote
+
 def get_db():
     db_url = os.environ.get("DATABASE_URL")
+    if not db_url:
+        raise Exception("DATABASE_URL missing in environment")
+
+    # If DATABASE_URL contains an "options" query param (e.g. options=-c%20enable_ipv6=off),
+    # remove it from the DSN we hand to psycopg2 and keep the value to pass separately.
+    clean_dsn = db_url
+    options_value = None
+
+    try:
+        parts = urlsplit(db_url)
+        if parts.query:
+            params = dict(parse_qsl(parts.query, keep_blank_values=True))
+            if "options" in params:
+                options_value = params.pop("options")
+                # decode percent-encoding (so "%20" -> " ")
+                options_value = unquote(options_value)
+
+            # rebuild query without options
+            new_query = urlencode(params)
+            parts = parts._replace(query=new_query)
+            clean_dsn = urlunsplit(parts)
+    except Exception:
+        # if parsing fails for some reason, fall back to original db_url
+        clean_dsn = db_url
+        options_value = options_value or None
+
+    # If no options were provided, default to forcing IPv4 (disable ipv6)
+    if not options_value:
+        options_value = "-c enable_ipv6=off"
 
     conn = psycopg2.connect(
-        db_url,
+        clean_dsn,
         sslmode="require",
-        target_session_attrs="read-write",
-        options="-c enable_ipv6=off",
+        options=options_value,
         cursor_factory=psycopg2.extras.RealDictCursor
     )
-
     return conn
 
 
