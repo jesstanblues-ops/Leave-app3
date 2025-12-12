@@ -12,47 +12,86 @@ app.secret_key = os.environ.get("FLASK_SECRET_KEY", "fallback-secret")
 # ============================================================
 #  POSTGRESQL CONNECTION
 # ============================================================
-from urllib.parse import urlsplit, parse_qsl, urlencode, urlunsplit, unquote
+
+# add these imports near the top of app.py if not already present
+import socket
+from urllib.parse import urlsplit, parse_qsl, unquote
 
 def get_db():
+    """
+    Parse DATABASE_URL and connect using an IPv4 address to avoid IPv6 'Network is unreachable' errors.
+    """
     db_url = os.environ.get("DATABASE_URL")
     if not db_url:
         raise Exception("DATABASE_URL missing in environment")
 
-    # If DATABASE_URL contains an "options" query param (e.g. options=-c%20enable_ipv6=off),
-    # remove it from the DSN we hand to psycopg2 and keep the value to pass separately.
-    clean_dsn = db_url
+    # parse url
+    parts = urlsplit(db_url)
+    scheme = parts.scheme
+    if scheme not in ("postgres", "postgresql"):
+        # allow full DSN variants but expect postgres scheme
+        pass
+
+    # basic components
+    username = parts.username or ""
+    password = parts.password or ""
+    hostname = parts.hostname
+    port = parts.port or 5432
+    path = parts.path.lstrip("/")  # database name
+    query = parts.query
+
+    # parse query and extract options (if present)
+    params = dict(parse_qsl(query, keep_blank_values=True))
     options_value = None
+    if "options" in params:
+        options_value = params.pop("options")
+        options_value = unquote(options_value)
+    # also read sslmode if present
+    sslmode = params.get("sslmode", None)
 
+    # Resolve hostname to IPv4 address explicitly
     try:
-        parts = urlsplit(db_url)
-        if parts.query:
-            params = dict(parse_qsl(parts.query, keep_blank_values=True))
-            if "options" in params:
-                options_value = params.pop("options")
-                # decode percent-encoding (so "%20" -> " ")
-                options_value = unquote(options_value)
+        infos = socket.getaddrinfo(hostname, port, family=socket.AF_INET, type=socket.SOCK_STREAM)
+        if not infos:
+            raise RuntimeError(f"No IPv4 address found for host {hostname}")
+        # pick first resolved IPv4 address
+        ipv4_addr = infos[0][4][0]
+    except Exception as e:
+        # helpful logging for Render logs
+        raise RuntimeError(f"Failed to resolve IPv4 address for host {hostname}: {e}")
 
-            # rebuild query without options
-            new_query = urlencode(params)
-            parts = parts._replace(query=new_query)
-            clean_dsn = urlunsplit(parts)
-    except Exception:
-        # if parsing fails for some reason, fall back to original db_url
-        clean_dsn = db_url
-        options_value = options_value or None
+    # Build connect kwargs
+    connect_kwargs = {
+        "host": ipv4_addr,
+        "port": port,
+        "user": username,
+        "password": password,
+        "dbname": path or "postgres",
+        "cursor_factory": psycopg2.extras.RealDictCursor,
+    }
 
-    # If no options were provided, default to forcing IPv4 (disable ipv6)
+    # pass sslmode if present
+    if sslmode:
+        connect_kwargs["sslmode"] = sslmode
+    else:
+        # Supabase requires SSL
+        connect_kwargs["sslmode"] = "require"
+
+    # pass options (force IPv4 if not provided)
     if not options_value:
+        # default: attempt to ensure client uses IPv4 where possible (keeps previous behavior)
         options_value = "-c enable_ipv6=off"
+    connect_kwargs["options"] = options_value
 
-    conn = psycopg2.connect(
-        clean_dsn,
-        sslmode="require",
-        options=options_value,
-        cursor_factory=psycopg2.extras.RealDictCursor
-    )
+    # Connect
+    try:
+        conn = psycopg2.connect(**connect_kwargs)
+    except Exception as e:
+        # raise with a clearer message for logs
+        raise RuntimeError(f"psycopg2.connect failed (host resolved to {ipv4_addr}): {e}")
+
     return conn
+
 
 
 
