@@ -14,18 +14,17 @@ app.secret_key = os.environ.get("FLASK_SECRET_KEY", "fallback-secret")
 # ============================================================
 def get_db():
     db_url = os.environ.get("DATABASE_URL")
-    if not db_url:
-        raise Exception("DATABASE_URL missing in Render environment")
 
-   conn = psycopg2.connect(
-    db_url,
-    sslmode="require",
-    target_session_attrs="read-write",
-    options="-c enable_ipv6=off",
-    cursor_factory=psycopg2.extras.RealDictCursor
-)
+    conn = psycopg2.connect(
+        db_url,
+        sslmode="require",
+        target_session_attrs="read-write",
+        options="-c enable_ipv6=off",
+        cursor_factory=psycopg2.extras.RealDictCursor
+    )
 
     return conn
+
 
 
 # ============================================================
