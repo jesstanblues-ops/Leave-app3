@@ -18,6 +18,8 @@ def get_db():
     if not db_url:
         raise Exception("DATABASE_URL missing!")
 
+    db_url = db_url.strip()  # ⭐ THIS LINE FIXES THE ISSUE
+
     conn = psycopg2.connect(
         db_url,
         sslmode="require",
