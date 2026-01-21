@@ -33,6 +33,9 @@ def init_db():
     conn = get_db()
     cur = conn.cursor()
 
+    # =========================
+    # CREATE TABLES (NEW SETUPS)
+    # =========================
     cur.execute("""
         CREATE TABLE IF NOT EXISTS employees (
             id SERIAL PRIMARY KEY,
@@ -70,9 +73,35 @@ def init_db():
         );
     """)
 
+    # =========================
+    # MIGRATIONS (FOR OLD DBs)
+    # =========================
+
+    # 1) leave_requests.year may not exist in older DB
+    cur.execute("""ALTER TABLE leave_requests ADD COLUMN IF NOT EXISTS year INT;""")
+
+    # 2) leave_balances columns might be missing in older DB
+    cur.execute("""ALTER TABLE leave_balances ADD COLUMN IF NOT EXISTS total_entitlement REAL DEFAULT 0;""")
+    cur.execute("""ALTER TABLE leave_balances ADD COLUMN IF NOT EXISTS used REAL DEFAULT 0;""")
+    cur.execute("""ALTER TABLE leave_balances ADD COLUMN IF NOT EXISTS remaining REAL DEFAULT 0;""")
+
+    # Backfill year for existing leave requests
+    cur.execute("""
+        UPDATE leave_requests
+        SET year = CASE
+            WHEN year IS NOT NULL THEN year
+            WHEN start_date IS NOT NULL AND start_date <> '' THEN CAST(SUBSTRING(start_date, 1, 4) AS INT)
+            WHEN applied_on IS NOT NULL AND applied_on <> '' THEN CAST(SUBSTRING(applied_on, 1, 4) AS INT)
+            ELSE EXTRACT(YEAR FROM NOW())::INT
+        END
+        WHERE year IS NULL;
+    """)
+
     conn.commit()
 
-    # Seed employees only if empty
+    # =========================
+    # SEED EMPLOYEES IF EMPTY
+    # =========================
     cur.execute("SELECT COUNT(*) AS c FROM employees")
     if (cur.fetchone() or {}).get("c", 0) == 0:
         for emp in getattr(config, "EMPLOYEES", []):
@@ -88,7 +117,9 @@ def init_db():
             ))
         conn.commit()
 
-    # Ensure current year balances exist for all employees
+    # =========================
+    # ENSURE CURRENT YEAR BALANCES
+    # =========================
     current_year = datetime.now().year
     cur.execute("SELECT name, entitlement FROM employees ORDER BY name")
     for emp in cur.fetchall():
