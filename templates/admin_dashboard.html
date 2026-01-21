@@ -3,14 +3,24 @@
 
 <h3>Admin Dashboard</h3>
 
+<!-- YEAR SELECTOR -->
+<form method="GET" action="/admin" class="mb-3">
+  <label class="me-2"><strong>Year:</strong></label>
+  <select name="year" onchange="this.form.submit()" class="form-select d-inline-block w-auto">
+    {% for y in range(2023, 2031) %}
+      <option value="{{ y }}" {% if y == year %}selected{% endif %}>{{ y }}</option>
+    {% endfor %}
+  </select>
+</form>
+
 <p>
   <a href="/download_excel" class="btn btn-success mb-3">
       📥 Download All Leave Records (Excel)
   </a>
 </p>
 
-<!-- Leave Requests -->
-<h4>Leave Requests</h4>
+<!-- ===================== LEAVE REQUESTS ===================== -->
+<h4>Leave Requests ({{ year }})</h4>
 <table class="table table-sm table-bordered">
 <thead>
 <tr>
@@ -30,12 +40,8 @@
     <td>{{ l.leave_type }}</td>
     <td>{{ l.start_date }} → {{ l.end_date }}</td>
     <td>{{ "%.2f"|format(l.days) }}</td>
-
-    <!-- Show reason or dash if empty -->
     <td>{{ l.reason if l.reason else "–" }}</td>
-
     <td>{{ l.status }}</td>
-
     <td>
         {% if l.status == "Pending" %}
             <a class="btn btn-success btn-sm" href="/approve/{{ l.id }}">Approve</a>
@@ -49,7 +55,7 @@
 </tbody>
 </table>
 
-<!-- Add Employee -->
+<!-- ===================== ADD EMPLOYEE ===================== -->
 <h4 class="mt-4">Add New Employee</h4>
 <form method="POST" action="/add_employee" class="row g-2 mb-4">
     <div class="col-md-3">
@@ -66,14 +72,15 @@
     </div>
 </form>
 
-<!-- Employees -->
-<h4>Employees</h4>
+<!-- ===================== EMPLOYEES ===================== -->
+<h4>Employees (Balances for {{ year }})</h4>
 <table class="table table-sm table-bordered">
 <thead>
 <tr>
     <th>Name</th>
-    <th>Entitlement</th>
-    <th>Balance</th>
+    <th>Total Entitlement</th>
+    <th>Used</th>
+    <th>Remaining</th>
     <th>Update Entitlement</th>
     <th>Update Balance</th>
     <th>Rename</th>
@@ -82,18 +89,20 @@
 </thead>
 
 <tbody>
-{% for e in employees %}
+{% for b in balances %}
 <tr>
-    <td>{{ e.name }}</td>
-    <td>{{ e.entitlement }}</td>
-    <td>{{ "%.2f"|format(e.current_balance) }}</td>
+    <td>{{ b.employee_name }}</td>
+    <td>{{ "%.2f"|format(b.total_entitlement) }}</td>
+    <td>{{ "%.2f"|format(b.used) }}</td>
+    <td><strong>{{ "%.2f"|format(b.remaining) }}</strong></td>
 
     <!-- Update Entitlement -->
     <td>
         <form method="POST" action="/update_entitlement" class="d-flex">
-            <input type="hidden" name="name" value="{{ e.name }}">
-            <input type="number" step="0.25" class="form-control form-control-sm me-2" name="entitlement"
-                   placeholder="{{ e.entitlement }}">
+            <input type="hidden" name="name" value="{{ b.employee_name }}">
+            <input type="hidden" name="year" value="{{ year }}">
+            <input type="number" step="0.25" class="form-control form-control-sm me-2"
+                   name="entitlement" placeholder="{{ b.total_entitlement }}">
             <button class="btn btn-primary btn-sm">Save</button>
         </form>
     </td>
@@ -101,9 +110,10 @@
     <!-- Update Balance -->
     <td>
         <form method="POST" action="/update_balance" class="d-flex">
-            <input type="hidden" name="name" value="{{ e.name }}">
-            <input type="number" step="0.25" class="form-control form-control-sm me-2" name="balance"
-                   placeholder="{{ e.current_balance }}">
+            <input type="hidden" name="name" value="{{ b.employee_name }}">
+            <input type="hidden" name="year" value="{{ year }}">
+            <input type="number" step="0.25" class="form-control form-control-sm me-2"
+                   name="balance" placeholder="{{ b.remaining }}">
             <button class="btn btn-warning btn-sm">Save</button>
         </form>
     </td>
@@ -111,7 +121,7 @@
     <!-- Rename -->
     <td>
         <form method="POST" action="/update_employee_name" class="d-flex">
-            <input type="hidden" name="old_name" value="{{ e.name }}">
+            <input type="hidden" name="old_name" value="{{ b.employee_name }}">
             <input class="form-control form-control-sm me-2" name="new_name" placeholder="New name">
             <button class="btn btn-info btn-sm">Rename</button>
         </form>
@@ -120,15 +130,14 @@
     <!-- Delete -->
     <td>
         <form method="POST" action="/delete_employee"
-              onsubmit="return confirm('Delete {{ e.name }}?');">
-            <input type="hidden" name="name" value="{{ e.name }}">
+              onsubmit="return confirm('Delete {{ b.employee_name }}?');">
+            <input type="hidden" name="name" value="{{ b.employee_name }}">
             <button class="btn btn-danger btn-sm">Delete</button>
         </form>
     </td>
 </tr>
 {% endfor %}
 </tbody>
-
 </table>
 
 {% endblock %}
