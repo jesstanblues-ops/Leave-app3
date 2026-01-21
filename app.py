@@ -24,14 +24,60 @@ def get_db():
         sslmode="require",
         cursor_factory=psycopg2.extras.RealDictCursor
     )
+
+
+# ============================================================
+#  SCHEMA (CREATE + MIGRATE)  ✅ WORKS ON RENDER
+# ============================================================
 def ensure_schema():
     conn = get_db()
     cur = conn.cursor()
     try:
-        # Add year column if missing
-        cur.execute("ALTER TABLE leave_requests ADD COLUMN IF NOT EXISTS year INT;")
+        # ---- Create tables if missing ----
+        cur.execute("""
+            CREATE TABLE IF NOT EXISTS employees (
+                id SERIAL PRIMARY KEY,
+                name TEXT UNIQUE,
+                role TEXT,
+                join_date TEXT,
+                entitlement REAL DEFAULT 0
+            );
+        """)
 
-        # Backfill year if null (safe)
+        cur.execute("""
+            CREATE TABLE IF NOT EXISTS leave_requests (
+                id SERIAL PRIMARY KEY,
+                employee_name TEXT,
+                leave_type TEXT,
+                start_date TEXT,
+                end_date TEXT,
+                days REAL,
+                year INT,
+                status TEXT,
+                reason TEXT,
+                applied_on TEXT
+            );
+        """)
+
+        cur.execute("""
+            CREATE TABLE IF NOT EXISTS leave_balances (
+                id SERIAL PRIMARY KEY,
+                employee_name TEXT,
+                year INT,
+                total_entitlement REAL DEFAULT 0,
+                used REAL DEFAULT 0,
+                remaining REAL DEFAULT 0,
+                UNIQUE(employee_name, year)
+            );
+        """)
+
+        # ---- Migrations for older DBs ----
+        cur.execute("ALTER TABLE leave_requests ADD COLUMN IF NOT EXISTS year INT;")
+        cur.execute("ALTER TABLE leave_balances ADD COLUMN IF NOT EXISTS total_entitlement REAL DEFAULT 0;")
+        cur.execute("ALTER TABLE leave_balances ADD COLUMN IF NOT EXISTS used REAL DEFAULT 0;")
+        cur.execute("ALTER TABLE leave_balances ADD COLUMN IF NOT EXISTS remaining REAL DEFAULT 0;")
+
+        # Backfill year for older leave records
         cur.execute("""
             UPDATE leave_requests
             SET year = CASE
@@ -47,115 +93,6 @@ def ensure_schema():
     finally:
         cur.close()
         conn.close()
-
-
-# ============================================================
-#  INITIALIZE DATABASE
-# ============================================================
-def init_db():
-    conn = get_db()
-    cur = conn.cursor()
-
-    # =========================
-    # CREATE TABLES (NEW SETUPS)
-    # =========================
-    cur.execute("""
-        CREATE TABLE IF NOT EXISTS employees (
-            id SERIAL PRIMARY KEY,
-            name TEXT UNIQUE,
-            role TEXT,
-            join_date TEXT,
-            entitlement REAL DEFAULT 0
-        );
-    """)
-
-    cur.execute("""
-        CREATE TABLE IF NOT EXISTS leave_requests (
-            id SERIAL PRIMARY KEY,
-            employee_name TEXT,
-            leave_type TEXT,
-            start_date TEXT,
-            end_date TEXT,
-            days REAL,
-            year INT,
-            status TEXT,
-            reason TEXT,
-            applied_on TEXT
-        );
-    """)
-
-    cur.execute("""
-        CREATE TABLE IF NOT EXISTS leave_balances (
-            id SERIAL PRIMARY KEY,
-            employee_name TEXT,
-            year INT,
-            total_entitlement REAL DEFAULT 0,
-            used REAL DEFAULT 0,
-            remaining REAL DEFAULT 0,
-            UNIQUE(employee_name, year)
-        );
-    """)
-
-    # =========================
-    # MIGRATIONS (FOR OLD DBs)
-    # =========================
-
-    # 1) leave_requests.year may not exist in older DB
-    cur.execute("""ALTER TABLE leave_requests ADD COLUMN IF NOT EXISTS year INT;""")
-
-    # 2) leave_balances columns might be missing in older DB
-    cur.execute("""ALTER TABLE leave_balances ADD COLUMN IF NOT EXISTS total_entitlement REAL DEFAULT 0;""")
-    cur.execute("""ALTER TABLE leave_balances ADD COLUMN IF NOT EXISTS used REAL DEFAULT 0;""")
-    cur.execute("""ALTER TABLE leave_balances ADD COLUMN IF NOT EXISTS remaining REAL DEFAULT 0;""")
-
-    # Backfill year for existing leave requests
-    cur.execute("""
-        UPDATE leave_requests
-        SET year = CASE
-            WHEN year IS NOT NULL THEN year
-            WHEN start_date IS NOT NULL AND start_date <> '' THEN CAST(SUBSTRING(start_date, 1, 4) AS INT)
-            WHEN applied_on IS NOT NULL AND applied_on <> '' THEN CAST(SUBSTRING(applied_on, 1, 4) AS INT)
-            ELSE EXTRACT(YEAR FROM NOW())::INT
-        END
-        WHERE year IS NULL;
-    """)
-
-    conn.commit()
-
-    # =========================
-    # SEED EMPLOYEES IF EMPTY
-    # =========================
-    cur.execute("SELECT COUNT(*) AS c FROM employees")
-    if (cur.fetchone() or {}).get("c", 0) == 0:
-        for emp in getattr(config, "EMPLOYEES", []):
-            cur.execute("""
-                INSERT INTO employees (name, role, join_date, entitlement)
-                VALUES (%s,%s,%s,%s)
-                ON CONFLICT (name) DO NOTHING;
-            """, (
-                emp.get("name"),
-                emp.get("role", "Staff"),
-                emp.get("join_date", ""),
-                float(emp.get("entitlement") or 0),
-            ))
-        conn.commit()
-
-    # =========================
-    # ENSURE CURRENT YEAR BALANCES
-    # =========================
-    current_year = datetime.now().year
-    cur.execute("SELECT name, entitlement FROM employees ORDER BY name")
-    for emp in cur.fetchall():
-        ent = float(emp.get("entitlement") or 0)
-        cur.execute("""
-            INSERT INTO leave_balances (employee_name, year, total_entitlement, used, remaining)
-            VALUES (%s,%s,%s,0,%s)
-            ON CONFLICT (employee_name, year) DO NOTHING;
-        """, (emp["name"], current_year, ent, ent))
-
-    conn.commit()
-    cur.close()
-    conn.close()
 
 
 # ============================================================
@@ -191,10 +128,6 @@ def send_email(subject, body, to):
 #  HELPERS
 # ============================================================
 def ensure_balance_row(cur, employee_name: str, year: int):
-    """
-    Ensure leave_balances row exists for (employee_name, year).
-    Pull entitlement from employees table as default.
-    """
     cur.execute("""
         INSERT INTO leave_balances (employee_name, year, total_entitlement, used, remaining)
         SELECT name, %s, COALESCE(entitlement, 0), 0, COALESCE(entitlement, 0)
@@ -202,6 +135,32 @@ def ensure_balance_row(cur, employee_name: str, year: int):
         WHERE name=%s
         ON CONFLICT (employee_name, year) DO NOTHING;
     """, (year, employee_name))
+
+
+def seed_employees_once():
+    """Seed employees from config.EMPLOYEES if employees table is empty."""
+    conn = get_db()
+    cur = conn.cursor()
+    try:
+        cur.execute("SELECT COUNT(*) AS c FROM employees")
+        count = (cur.fetchone() or {}).get("c", 0)
+
+        if count == 0:
+            for emp in getattr(config, "EMPLOYEES", []):
+                cur.execute("""
+                    INSERT INTO employees (name, role, join_date, entitlement)
+                    VALUES (%s,%s,%s,%s)
+                    ON CONFLICT (name) DO NOTHING;
+                """, (
+                    emp.get("name"),
+                    emp.get("role", "Staff"),
+                    emp.get("join_date", ""),
+                    float(emp.get("entitlement") or 0),
+                ))
+        conn.commit()
+    finally:
+        cur.close()
+        conn.close()
 
 
 # ============================================================
@@ -212,11 +171,9 @@ def home():
     return redirect(url_for("apply_leave"))
 
 
-# ============================================================
-# DOWNLOAD EXCEL (MULTI-SHEET EXPORT)
-# ============================================================
 @app.route("/download_excel")
 def download_excel():
+    ensure_schema()
     import pandas as pd
 
     conn = get_db()
@@ -247,15 +204,14 @@ def download_excel():
     return send_file(file_path, as_attachment=True, download_name="leave_records.xlsx")
 
 
-# ============================================================
-# BALANCE API (YEAR-AWARE)
-# ============================================================
 @app.route("/balance/<name>")
 def balance(name):
+    ensure_schema()
     year = request.args.get("year", datetime.now().year, type=int)
 
     conn = get_db()
     cur = conn.cursor()
+
     ensure_balance_row(cur, name, year)
     conn.commit()
 
@@ -267,14 +223,15 @@ def balance(name):
 
     cur.close()
     conn.close()
+
     return jsonify({"balance": float(row["remaining"]) if row else 0.0})
 
 
-# ============================================================
-# APPLY LEAVE
-# ============================================================
 @app.route("/apply", methods=["GET", "POST"])
 def apply_leave():
+    ensure_schema()
+    seed_employees_once()
+
     conn = get_db()
     cur = conn.cursor()
     cur.execute("SELECT name FROM employees ORDER BY name")
@@ -324,23 +281,16 @@ def apply_leave():
         cur.close()
         conn.close()
 
-        send_email(
-            "New Leave Request",
-            f"{emp} applied for {days} days ({ltype}).",
-            to="jessetan.ba@gmail.com"
-        )
-
+        send_email("New Leave Request", f"{emp} applied for {days} days ({ltype}).", to="jessetan.ba@gmail.com")
         flash("Leave request submitted", "success")
         return redirect(url_for("apply_leave"))
 
     return render_template("apply_leave.html", employees=employees)
 
 
-# ============================================================
-# HISTORY
-# ============================================================
 @app.route("/history/<name>")
 def history(name):
+    ensure_schema()
     conn = get_db()
     cur = conn.cursor()
     cur.execute("""
@@ -377,15 +327,15 @@ def admin_logout():
 
 
 # ============================================================
-# ADMIN DASHBOARD (RETURNS balances to match your template)
+# ADMIN DASHBOARD
 # ============================================================
 @app.route("/admin")
 def admin_dashboard():
     if not session.get("admin_logged_in"):
         return redirect(url_for("admin_login"))
 
-    # ✅ Force schema migration before queries
     ensure_schema()
+    seed_employees_once()
 
     year = request.args.get("year", datetime.now().year, type=int)
 
@@ -420,12 +370,13 @@ def admin_dashboard():
     return render_template("admin_dashboard.html", leaves=leaves, balances=balances, year=year)
 
 
-
 # ============================================================
 # RENAME EMPLOYEE
 # ============================================================
 @app.route("/update_employee_name", methods=["POST"])
 def update_employee_name():
+    ensure_schema()
+
     old_name = request.form.get("old_name")
     new_name = request.form.get("new_name")
 
@@ -456,6 +407,8 @@ def update_employee_name():
 # ============================================================
 @app.route("/approve/<int:lid>")
 def approve(lid):
+    ensure_schema()
+
     conn = get_db()
     cur = conn.cursor()
 
@@ -506,18 +459,15 @@ def approve(lid):
     cur.close()
     conn.close()
 
-    send_email(
-        "Leave Approved",
-        f"{emp}'s leave ({lr['start_date']} → {lr['end_date']}) approved.",
-        to="claycorp177@gmail.com",
-    )
-
+    send_email("Leave Approved", f"{emp}'s leave ({lr['start_date']} → {lr['end_date']}) approved.", to="claycorp177@gmail.com")
     flash("Leave approved", "success")
     return redirect(url_for("admin_dashboard", year=year))
 
 
 @app.route("/reject/<int:lid>")
 def reject(lid):
+    ensure_schema()
+
     conn = get_db()
     cur = conn.cursor()
 
@@ -527,12 +477,7 @@ def reject(lid):
     if lr:
         cur.execute("UPDATE leave_requests SET status='Rejected' WHERE id=%s", (lid,))
         conn.commit()
-
-        send_email(
-            "Leave Rejected",
-            f"{lr['employee_name']}'s leave ({lr['start_date']} → {lr['end_date']}) rejected.",
-            to="claycorp177@gmail.com",
-        )
+        send_email("Leave Rejected", f"{lr['employee_name']}'s leave ({lr['start_date']} → {lr['end_date']}) rejected.", to="claycorp177@gmail.com")
 
     cur.close()
     conn.close()
@@ -541,10 +486,12 @@ def reject(lid):
 
 
 # ============================================================
-# UPDATE ENTITLEMENT / BALANCE (YEAR SAFE)
+# UPDATE ENTITLEMENT / BALANCE
 # ============================================================
 @app.route("/update_entitlement", methods=["POST"])
 def update_entitlement():
+    ensure_schema()
+
     name = request.form.get("name")
     ent = request.form.get("entitlement")
     year = request.form.get("year")
@@ -585,6 +532,8 @@ def update_entitlement():
 
 @app.route("/update_balance", methods=["POST"])
 def update_balance():
+    ensure_schema()
+
     name = request.form.get("name")
     bal = request.form.get("balance")
     year = request.form.get("year")
@@ -627,6 +576,8 @@ def update_balance():
 # ============================================================
 @app.route("/add_employee", methods=["POST"])
 def add_employee():
+    ensure_schema()
+
     name = request.form.get("name")
     join_date = request.form.get("join_date")
     entitlement = request.form.get("entitlement")
@@ -649,8 +600,7 @@ def add_employee():
         ON CONFLICT (name) DO NOTHING;
     """, (name, "Staff", join_date, ent_val))
 
-    current_year = datetime.now().year
-    ensure_balance_row(cur, name, current_year)
+    ensure_balance_row(cur, name, datetime.now().year)
 
     conn.commit()
     cur.close()
@@ -662,6 +612,8 @@ def add_employee():
 
 @app.route("/delete_employee", methods=["POST"])
 def delete_employee():
+    ensure_schema()
+
     name = request.form.get("name")
     if not name:
         flash("Missing employee name", "danger")
@@ -694,7 +646,9 @@ def test_email():
 # ============================================================
 @app.route("/calendar")
 def calendar_api():
-    month = request.args.get("month")  # format: YYYY-MM
+    ensure_schema()
+
+    month = request.args.get("month")  # YYYY-MM
     if not month:
         return jsonify({"error": "month=YYYY-MM required"}), 400
 
@@ -737,11 +691,16 @@ def calendar_api():
 def calendar_view():
     return render_template("calendar_view.html")
 
+
+# ============================================================
+# DEBUG ROUTE
+# ============================================================
 @app.route("/debug_tables")
 def debug_tables():
+    ensure_schema()
+
     conn = get_db()
     cur = conn.cursor()
-
     cur.execute("""
         SELECT table_name
         FROM information_schema.tables
@@ -749,17 +708,13 @@ def debug_tables():
         ORDER BY table_name;
     """)
     tables = [r["table_name"] for r in cur.fetchall()]
-
     cur.close()
     conn.close()
-
     return {"tables": tables}
 
 
-
 # ============================================================
-# RUN
+# RUN LOCAL
 # ============================================================
 if __name__ == "__main__":
-    init_db()
     app.run(debug=True, host="0.0.0.0")
