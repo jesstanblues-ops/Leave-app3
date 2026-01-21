@@ -692,25 +692,7 @@ def calendar_view():
     return render_template("calendar_view.html")
 
 
-# ============================================================
-# DEBUG ROUTE
-# ============================================================
-@app.route("/debug_tables")
-def debug_tables():
-    ensure_schema()
 
-    conn = get_db()
-    cur = conn.cursor()
-    cur.execute("""
-        SELECT table_name
-        FROM information_schema.tables
-        WHERE table_schema='public'
-        ORDER BY table_name;
-    """)
-    tables = [r["table_name"] for r in cur.fetchall()]
-    cur.close()
-    conn.close()
-    return {"tables": tables}
 
 
 # ============================================================
