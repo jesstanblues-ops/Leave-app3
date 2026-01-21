@@ -448,14 +448,19 @@ def reject(lid):
 @app.route("/update_entitlement", methods=["POST"])
 def update_entitlement():
     name = request.form["name"]
-    year = int(request.form["year"])
     ent = request.form["entitlement"]
+    year = request.form.get("year")
 
     try:
         ent_val = float(ent)
     except:
         flash("Invalid entitlement", "danger")
         return redirect(url_for("admin_dashboard"))
+
+    if not year:
+        year = datetime.now().year
+    else:
+        year = int(year)
 
     conn = get_db()
     cur = conn.cursor()
@@ -477,14 +482,19 @@ def update_entitlement():
 @app.route("/update_balance", methods=["POST"])
 def update_balance():
     name = request.form["name"]
-    year = int(request.form["year"])
     bal = request.form["balance"]
+    year = request.form.get("year")
 
     try:
         bal_val = float(bal)
     except:
         flash("Invalid balance", "danger")
         return redirect(url_for("admin_dashboard"))
+
+    if not year:
+        year = datetime.now().year
+    else:
+        year = int(year)
 
     conn = get_db()
     cur = conn.cursor()
