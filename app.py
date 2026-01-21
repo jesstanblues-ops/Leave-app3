@@ -31,6 +31,7 @@ def get_db():
 # ============================================================
 #  INITIALIZE DATABASE
 # ============================================================
+
 def init_db():
     conn = get_db()
     cur = conn.cursor()
@@ -62,7 +63,7 @@ def init_db():
         );
     """)
 
-    # ------------------ LEAVE BALANCES (NEW) ------------------
+    # ------------------ LEAVE BALANCES ------------------
     cur.execute("""
         CREATE TABLE IF NOT EXISTS leave_balances (
             id SERIAL PRIMARY KEY,
@@ -113,6 +114,7 @@ def init_db():
 # ============================================================
 #  EMAIL (BREVO API)
 # ============================================================
+
 def send_email(subject, body, to):
     api_key = os.environ.get("BREVO_API_KEY")
     if not api_key:
@@ -147,6 +149,7 @@ def send_email(subject, body, to):
 # ============================================================
 # ROUTES
 # ============================================================
+
 @app.route("/")
 def home():
     return redirect(url_for("apply_leave"))
@@ -155,6 +158,7 @@ def home():
 # ============================================================
 # DOWNLOAD EXCEL (MULTI-SHEET EXPORT)
 # ============================================================
+
 @app.route("/download_excel")
 def download_excel():
     import pandas as pd
@@ -163,9 +167,7 @@ def download_excel():
     conn = get_db()
     cur = conn.cursor()
 
-    # ---------------------------
-    # SHEET 1 — Leave Records
-    # ---------------------------
+    # Leave records
     cur.execute("""
         SELECT employee_name, leave_type, start_date, end_date, days, year, status, reason, applied_on
         FROM leave_requests
@@ -174,9 +176,7 @@ def download_excel():
     leave_rows = cur.fetchall()
     df_leaves = pd.DataFrame(leave_rows)
 
-    # ---------------------------
-    # SHEET 2 — Employee Balances
-    # ---------------------------
+    # Balances
     cur.execute("""
         SELECT employee_name, year, total_entitlement, used, remaining
         FROM leave_balances
@@ -198,6 +198,7 @@ def download_excel():
 # ============================================================
 # BALANCE API (YEAR-AWARE)
 # ============================================================
+
 @app.route("/balance/<name>")
 def balance(name):
     year = request.args.get("year", datetime.now().year, type=int)
@@ -217,6 +218,7 @@ def balance(name):
 # ============================================================
 # APPLY LEAVE
 # ============================================================
+
 @app.route("/apply", methods=["GET", "POST"])
 def apply_leave():
     conn = get_db()
@@ -255,7 +257,8 @@ def apply_leave():
         """, (year, emp))
 
         cur.execute("""
-            INSERT INTO leave_requests (employee_name, leave_type, start_date, end_date, days, year, status, reason, applied_on)
+            INSERT INTO leave_requests
+            (employee_name, leave_type, start_date, end_date, days, year, status, reason, applied_on)
             VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s)
         """, (emp, ltype, s.isoformat(), e.isoformat(), days, year, "Pending", reason, datetime.now().isoformat()))
 
@@ -277,6 +280,7 @@ def apply_leave():
 # ============================================================
 # HISTORY
 # ============================================================
+
 @app.route("/history/<name>")
 def history(name):
     conn = get_db()
@@ -294,6 +298,7 @@ def history(name):
 # ============================================================
 # ADMIN AUTH
 # ============================================================
+
 @app.route("/admin_login", methods=["GET", "POST"])
 def admin_login():
     error = None
@@ -316,6 +321,7 @@ def admin_logout():
 # ============================================================
 # ADMIN DASHBOARD
 # ============================================================
+
 @app.route("/admin")
 def admin_dashboard():
     if not session.get("admin_logged_in"):
@@ -326,6 +332,7 @@ def admin_dashboard():
     conn = get_db()
     cur = conn.cursor()
 
+    # Leave requests for selected year
     cur.execute("""
         SELECT * FROM leave_requests
         WHERE year=%s
@@ -333,20 +340,26 @@ def admin_dashboard():
     """, (year,))
     leaves = cur.fetchall()
 
+    # Employees + balances for selected year
     cur.execute("""
-        SELECT lb.employee_name, lb.year, lb.total_entitlement, lb.used, lb.remaining
-        FROM leave_balances lb
-        ORDER BY lb.employee_name
-    """)
-    balances = cur.fetchall()
+        SELECT e.name,
+               COALESCE(lb.total_entitlement, e.entitlement) AS entitlement,
+               COALESCE(lb.remaining, e.entitlement) AS remaining
+        FROM employees e
+        LEFT JOIN leave_balances lb
+          ON e.name = lb.employee_name AND lb.year = %s
+        ORDER BY e.name
+    """, (year,))
+    employees = cur.fetchall()
 
     conn.close()
-    return render_template("admin_dashboard.html", leaves=leaves, balances=balances, year=year)
+    return render_template("admin_dashboard.html", leaves=leaves, employees=employees, year=year)
 
 
 # ============================================================
 # RENAME EMPLOYEE
 # ============================================================
+
 @app.route("/update_employee_name", methods=["POST"])
 def update_employee_name():
     old_name = request.form.get("old_name")
@@ -377,6 +390,7 @@ def update_employee_name():
 # ============================================================
 # APPROVE / REJECT LEAVE (YEAR SAFE)
 # ============================================================
+
 @app.route("/approve/<int:lid>")
 def approve(lid):
     conn = get_db()
@@ -393,20 +407,36 @@ def approve(lid):
         flash("Leave already processed", "warning")
         return redirect(url_for("admin_dashboard"))
 
-    # Deduct from correct year balance
+    # Ensure balance row exists
+    cur.execute("""
+        INSERT INTO leave_balances (employee_name, year, total_entitlement, used, remaining)
+        SELECT name, %s, entitlement, 0, entitlement
+        FROM employees WHERE name=%s
+        ON CONFLICT (employee_name, year) DO NOTHING;
+    """, (lr["year"], lr["employee_name"]))
+
+    # Prevent negative balance
+    cur.execute("""
+        SELECT remaining FROM leave_balances
+        WHERE employee_name=%s AND year=%s
+    """, (lr["employee_name"], lr["year"]))
+    bal = cur.fetchone()["remaining"]
+
+    if bal < lr["days"]:
+        flash("Insufficient leave balance", "danger")
+        return redirect(url_for("admin_dashboard", year=lr["year"]))
+
+    # Deduct
     cur.execute("""
         UPDATE leave_balances
         SET used = used + %s,
             remaining = remaining - %s
-        WHERE employee_name = %s AND year = %s
+        WHERE employee_name=%s AND year=%s
     """, (lr["days"], lr["days"], lr["employee_name"], lr["year"]))
-
-    if cur.rowcount == 0:
-        flash("No leave balance found for this year", "danger")
-        return redirect(url_for("admin_dashboard"))
 
     cur.execute("UPDATE leave_requests SET status='Approved' WHERE id=%s", (lid,))
     conn.commit()
+    conn.close()
 
     send_email(
         "Leave Approved",
@@ -414,9 +444,8 @@ def approve(lid):
         to="claycorp177@gmail.com",
     )
 
-    conn.close()
     flash("Leave approved", "success")
-    return redirect(url_for("admin_dashboard"))
+    return redirect(url_for("admin_dashboard", year=lr["year"]))
 
 
 @app.route("/reject/<int:lid>")
@@ -445,14 +474,21 @@ def reject(lid):
 # ============================================================
 # UPDATE ENTITLEMENT / BALANCE (YEAR SAFE)
 # ============================================================
+
 @app.route("/update_entitlement", methods=["POST"])
 def update_entitlement():
-    name = request.form["name"]
-    ent = request.form["entitlement"]
+    name = request.form.get("name")
+    ent = request.form.get("entitlement")
     year = request.form.get("year")
+
+    if not name or ent is None:
+        flash("Missing data", "danger")
+        return redirect(url_for("admin_dashboard"))
 
     try:
         ent_val = float(ent)
+        if ent_val < 0:
+            raise ValueError
     except:
         flash("Invalid entitlement", "danger")
         return redirect(url_for("admin_dashboard"))
@@ -469,24 +505,32 @@ def update_entitlement():
         INSERT INTO leave_balances (employee_name, year, total_entitlement, used, remaining)
         VALUES (%s,%s,%s,0,%s)
         ON CONFLICT (employee_name, year)
-        DO UPDATE SET total_entitlement=%s, remaining=%s
-    """, (name, year, ent_val, ent_val, ent_val, ent_val))
+        DO UPDATE SET
+            total_entitlement = EXCLUDED.total_entitlement,
+            remaining = EXCLUDED.remaining
+    """, (name, year, ent_val, ent_val))
 
     conn.commit()
     conn.close()
 
     flash("Entitlement updated", "success")
-    return redirect(url_for("admin_dashboard"))
+    return redirect(url_for("admin_dashboard", year=year))
 
 
 @app.route("/update_balance", methods=["POST"])
 def update_balance():
-    name = request.form["name"]
-    bal = request.form["balance"]
+    name = request.form.get("name")
+    bal = request.form.get("balance")
     year = request.form.get("year")
+
+    if not name or bal is None:
+        flash("Missing data", "danger")
+        return redirect(url_for("admin_dashboard"))
 
     try:
         bal_val = float(bal)
+        if bal_val < 0:
+            raise ValueError
     except:
         flash("Invalid balance", "danger")
         return redirect(url_for("admin_dashboard"))
@@ -499,6 +543,15 @@ def update_balance():
     conn = get_db()
     cur = conn.cursor()
 
+    # Ensure row exists
+    cur.execute("""
+        INSERT INTO leave_balances (employee_name, year, total_entitlement, used, remaining)
+        SELECT name, %s, entitlement, 0, entitlement
+        FROM employees WHERE name=%s
+        ON CONFLICT (employee_name, year) DO NOTHING;
+    """, (year, name))
+
+    # Update remaining
     cur.execute("""
         UPDATE leave_balances
         SET remaining=%s
@@ -509,12 +562,13 @@ def update_balance():
     conn.close()
 
     flash("Balance updated", "success")
-    return redirect(url_for("admin_dashboard"))
+    return redirect(url_for("admin_dashboard", year=year))
 
 
 # ============================================================
 # ADD / DELETE EMPLOYEE
 # ============================================================
+
 @app.route("/add_employee", methods=["POST"])
 def add_employee():
     name = request.form.get("name")
@@ -554,7 +608,7 @@ def add_employee():
 
 @app.route("/delete_employee", methods=["POST"])
 def delete_employee():
-    name = request.form["name"]
+    name = request.form.get("name")
 
     conn = get_db()
     cur = conn.cursor()
@@ -571,6 +625,7 @@ def delete_employee():
 # ============================================================
 # TEST EMAIL
 # ============================================================
+
 @app.route("/test_email")
 def test_email():
     send_email(
@@ -584,6 +639,7 @@ def test_email():
 # ============================================================
 # SIMPLE MONTHLY CALENDAR API
 # ============================================================
+
 @app.route("/calendar")
 def calendar_api():
     month = request.args.get("month")  # format: YYYY-MM
@@ -638,6 +694,7 @@ def calendar_api():
 # ============================================================
 # SIMPLE HTML CALENDAR VIEW
 # ============================================================
+
 @app.route("/calendar_view")
 def calendar_view():
     return render_template("calendar_view.html")
@@ -646,6 +703,7 @@ def calendar_view():
 # ============================================================
 # RUN LOCAL
 # ============================================================
+
 if __name__ == "__main__":
     init_db()
     app.run(debug=True, host="0.0.0.0")
