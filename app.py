@@ -24,6 +24,29 @@ def get_db():
         sslmode="require",
         cursor_factory=psycopg2.extras.RealDictCursor
     )
+def ensure_schema():
+    conn = get_db()
+    cur = conn.cursor()
+    try:
+        # Add year column if missing
+        cur.execute("ALTER TABLE leave_requests ADD COLUMN IF NOT EXISTS year INT;")
+
+        # Backfill year if null (safe)
+        cur.execute("""
+            UPDATE leave_requests
+            SET year = CASE
+                WHEN year IS NOT NULL THEN year
+                WHEN start_date IS NOT NULL AND start_date <> '' THEN CAST(SUBSTRING(start_date, 1, 4) AS INT)
+                WHEN applied_on IS NOT NULL AND applied_on <> '' THEN CAST(SUBSTRING(applied_on, 1, 4) AS INT)
+                ELSE EXTRACT(YEAR FROM NOW())::INT
+            END
+            WHERE year IS NULL;
+        """)
+
+        conn.commit()
+    finally:
+        cur.close()
+        conn.close()
 
 
 # ============================================================
@@ -361,20 +384,22 @@ def admin_dashboard():
     if not session.get("admin_logged_in"):
         return redirect(url_for("admin_login"))
 
+    # ✅ Force schema migration before queries
+    ensure_schema()
+
     year = request.args.get("year", datetime.now().year, type=int)
 
     conn = get_db()
     cur = conn.cursor()
 
-    # Leave requests for selected year
     cur.execute("""
-        SELECT * FROM leave_requests
+        SELECT *
+        FROM leave_requests
         WHERE year=%s
         ORDER BY applied_on DESC
     """, (year,))
     leaves = cur.fetchall()
 
-    # Balances for selected year (show all employees even if no row yet)
     cur.execute("""
         SELECT
             e.name AS employee_name,
@@ -391,7 +416,9 @@ def admin_dashboard():
 
     cur.close()
     conn.close()
+
     return render_template("admin_dashboard.html", leaves=leaves, balances=balances, year=year)
+
 
 
 # ============================================================
@@ -709,6 +736,25 @@ def calendar_api():
 @app.route("/calendar_view")
 def calendar_view():
     return render_template("calendar_view.html")
+
+@app.route("/debug_tables")
+def debug_tables():
+    conn = get_db()
+    cur = conn.cursor()
+
+    cur.execute("""
+        SELECT table_name
+        FROM information_schema.tables
+        WHERE table_schema='public'
+        ORDER BY table_name;
+    """)
+    tables = [r["table_name"] for r in cur.fetchall()]
+
+    cur.close()
+    conn.close()
+
+    return {"tables": tables}
+
 
 
 # ============================================================
