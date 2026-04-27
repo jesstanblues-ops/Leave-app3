@@ -118,13 +118,20 @@ def send_email(subject, body, to):
 # ============================================================
 
 def ensure_balance_row(cur, employee_name: str, year: int):
+    cur.execute("SELECT join_date, entitlement FROM employees WHERE name=%s", (employee_name,))
+    emp = cur.fetchone()
+    if not emp:
+        return
+    prorated = calculate_prorated_entitlement(
+        emp["join_date"] or "",
+        float(emp["entitlement"] or 0),
+        year
+    )
     cur.execute("""
         INSERT INTO leave_balances (employee_name, year, total_entitlement, used, remaining)
-        SELECT name, %s, COALESCE(entitlement, 0), 0, COALESCE(entitlement, 0)
-        FROM employees
-        WHERE name=%s
+        VALUES (%s, %s, %s, 0, %s)
         ON CONFLICT (employee_name, year) DO NOTHING;
-    """, (year, employee_name))
+    """, (employee_name, year, prorated, prorated))
 
 def seed_employees_once():
     conn = get_db()
@@ -149,6 +156,25 @@ def seed_employees_once():
         cur.close()
         conn.close()
 
+# ============================================================
+# PRORATE ENTITLEMENT FOR MID-YEAR JOINERS
+# ============================================================
+
+def calculate_prorated_entitlement(join_date_str, full_entitlement, year):
+    try:
+        join = datetime.strptime(join_date_str, "%Y-%m-%d").date()
+    except Exception:
+        return full_entitlement
+    # Joined before this year — full entitlement
+    if join.year < year:
+        return full_entitlement
+    # Joined this year — prorate by months remaining including join month
+    if join.year == year:
+        months_remaining = 12 - join.month + 1
+        prorated = round((months_remaining / 12) * full_entitlement * 2) / 2
+        return prorated
+    # Joined after this year — no entitlement yet
+    return 0.0
 # ============================================================
 # ADMIN REQUIRED DECORATOR
 # FIX 1: Protect all admin routes properly
@@ -555,11 +581,12 @@ def add_employee():
     conn = get_db()
     cur = conn.cursor()
     cur.execute("""
-        INSERT INTO employees (name, role, join_date, entitlement)
-        VALUES (%s,%s,%s,%s)
-        ON CONFLICT (name) DO NOTHING;
-    """, (name, "Staff", join_date, ent_val))
-    ensure_balance_row(cur, name, datetime.now().year)
+    INSERT INTO employees (name, role, join_date, entitlement)
+    VALUES (%s,%s,%s,%s)
+    ON CONFLICT (name) DO NOTHING;
+""", (name, "Staff", join_date, ent_val))
+conn.commit()  # commit employee first so ensure_balance_row can find them
+ensure_balance_row(cur, name, datetime.now().year)
     conn.commit()
     cur.close()
     conn.close()
