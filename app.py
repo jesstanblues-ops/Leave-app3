@@ -493,7 +493,7 @@ def update_entitlement():
     cur.execute("""
         UPDATE leave_balances
         SET total_entitlement=%s,
-            remaining=%s
+            remaining=GREATEST(%s - used, 0)
         WHERE employee_name=%s AND year=%s
     """, (ent_val, ent_val, name, year))
     conn.commit()
