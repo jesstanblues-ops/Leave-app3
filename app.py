@@ -581,12 +581,12 @@ def add_employee():
     conn = get_db()
     cur = conn.cursor()
     cur.execute("""
-    INSERT INTO employees (name, role, join_date, entitlement)
-    VALUES (%s,%s,%s,%s)
-    ON CONFLICT (name) DO NOTHING;
-""", (name, "Staff", join_date, ent_val))
-conn.commit()  # commit employee first so ensure_balance_row can find them
-ensure_balance_row(cur, name, datetime.now().year)
+        INSERT INTO employees (name, role, join_date, entitlement)
+        VALUES (%s,%s,%s,%s)
+        ON CONFLICT (name) DO NOTHING;
+    """, (name, "Staff", join_date, ent_val))
+    conn.commit()
+    ensure_balance_row(cur, name, datetime.now().year)
     conn.commit()
     cur.close()
     conn.close()
