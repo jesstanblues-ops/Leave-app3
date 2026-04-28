@@ -483,9 +483,17 @@ def reject(lid):
     cur.execute("SELECT * FROM leave_requests WHERE id=%s", (lid,))
     lr = cur.fetchone()
     if lr:
+        # If it was approved, restore the balance
+        if lr["status"] == "Approved":
+            cur.execute("""
+                UPDATE leave_balances
+                SET used = GREATEST(used - %s, 0),
+                    remaining = remaining + %s
+                WHERE employee_name=%s AND year=%s
+            """, (lr["days"], lr["days"], lr["employee_name"], lr["year"]))
         cur.execute("UPDATE leave_requests SET status='Rejected' WHERE id=%s", (lid,))
         conn.commit()
-        send_email("Leave Rejected", f"{lr['employee_name']}'s leave ({lr['start_date']} → {lr['end_date']}) rejected.", to="claycorp177@gmail.com")
+        send_email("Leave Rejected", f"{lr['employee_name']}'s leave ({lr['start_date']} to {lr['end_date']}) rejected.", to="claycorp177@gmail.com")
     cur.close()
     conn.close()
     flash("Leave rejected", "info")
