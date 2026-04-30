@@ -28,11 +28,11 @@
 
 <p>
   <a href="/download_excel" class="btn btn-success mb-3">
-    📥 Download All Leave Records (Excel)
+    Download All Leave Records (Excel)
   </a>
 </p>
 
-<h4>Leave Requests — {{ month_names[month-1] }} {{ year }}</h4>
+<h4>Leave Requests - {{ month_names[month-1] }} {{ year }}</h4>
 
 {% if leaves %}
 <table class="table table-sm table-bordered">
@@ -100,8 +100,9 @@
     <tr>
       <th>Name</th>
       <th>Total Entitlement</th>
-      <th>Used</th>
+      <th>Used (Annual)</th>
       <th>Remaining</th>
+      <th>Medical Days Taken</th>
       <th>Update Entitlement</th>
       <th>Update Balance</th>
       <th>Rename</th>
@@ -120,10 +121,16 @@
         </strong>
       </td>
       <td>
+        <span class="badge {% if b.medical_days >= 14 %}bg-danger{% elif b.medical_days >= 7 %}bg-warning text-dark{% else %}bg-info text-dark{% endif %}">
+          {{ "%.2f"|format(b.medical_days) }} days
+        </span>
+      </td>
+      <td>
         <form method="POST" action="/update_entitlement" class="d-flex">
           <input type="hidden" name="name" value="{{ b.employee_name }}">
           <input type="hidden" name="year" value="{{ year }}">
-          <input type="number" step="0.25" class="form-control form-control-sm me-1" name="entitlement" placeholder="{{ b.total_entitlement }}" style="width:80px">
+          <input type="number" step="0.25" class="form-control form-control-sm me-1"
+                 name="entitlement" placeholder="{{ b.total_entitlement }}" style="width:80px">
           <button class="btn btn-primary btn-sm">Save</button>
         </form>
       </td>
@@ -131,19 +138,22 @@
         <form method="POST" action="/update_balance" class="d-flex">
           <input type="hidden" name="name" value="{{ b.employee_name }}">
           <input type="hidden" name="year" value="{{ year }}">
-          <input type="number" step="0.25" class="form-control form-control-sm me-1" name="balance" placeholder="{{ b.remaining }}" style="width:80px">
+          <input type="number" step="0.25" class="form-control form-control-sm me-1"
+                 name="balance" placeholder="{{ b.remaining }}" style="width:80px">
           <button class="btn btn-warning btn-sm">Save</button>
         </form>
       </td>
       <td>
         <form method="POST" action="/update_employee_name" class="d-flex">
           <input type="hidden" name="old_name" value="{{ b.employee_name }}">
-          <input class="form-control form-control-sm me-1" name="new_name" placeholder="New name" style="width:110px">
+          <input class="form-control form-control-sm me-1" name="new_name"
+                 placeholder="New name" style="width:110px">
           <button class="btn btn-info btn-sm">Rename</button>
         </form>
       </td>
       <td>
-        <form method="POST" action="/delete_employee" onsubmit="return confirm('Delete {{ b.employee_name }}? This cannot be undone.');">
+        <form method="POST" action="/delete_employee"
+              onsubmit="return confirm('Delete {{ b.employee_name }}? This cannot be undone.');">
           <input type="hidden" name="name" value="{{ b.employee_name }}">
           <button class="btn btn-danger btn-sm">Delete</button>
         </form>
