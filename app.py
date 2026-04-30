@@ -6,6 +6,7 @@ import config
 import requests
 import psycopg2
 import psycopg2.extras
+from functools import wraps
 
 app = Flask(__name__)
 app.secret_key = os.environ.get("FLASK_SECRET_KEY", "fallback-secret")
@@ -67,6 +68,15 @@ def ensure_schema():
                 UNIQUE(employee_name, year)
             );
         """)
+        cur.execute("""
+            CREATE TABLE IF NOT EXISTS medical_leave_records (
+                id SERIAL PRIMARY KEY,
+                employee_name TEXT,
+                year INT,
+                total_medical_days REAL DEFAULT 0,
+                UNIQUE(employee_name, year)
+            );
+        """)
         cur.execute("ALTER TABLE leave_requests ADD COLUMN IF NOT EXISTS year INT;")
         cur.execute("ALTER TABLE leave_balances ADD COLUMN IF NOT EXISTS total_entitlement REAL DEFAULT 0;")
         cur.execute("ALTER TABLE leave_balances ADD COLUMN IF NOT EXISTS used REAL DEFAULT 0;")
@@ -117,6 +127,11 @@ def send_email(subject, body, to):
 # HELPERS
 # ============================================================
 
+MEDICAL_LEAVE_TYPE = "Medical"
+
+def is_medical_leave(leave_type):
+    return (leave_type or "").strip().lower() == MEDICAL_LEAVE_TYPE.lower()
+
 def ensure_balance_row(cur, employee_name: str, year: int):
     cur.execute("SELECT join_date, entitlement FROM employees WHERE name=%s", (employee_name,))
     emp = cur.fetchone()
@@ -132,6 +147,13 @@ def ensure_balance_row(cur, employee_name: str, year: int):
         VALUES (%s, %s, %s, 0, %s)
         ON CONFLICT (employee_name, year) DO NOTHING;
     """, (employee_name, year, prorated, prorated))
+
+def ensure_medical_row(cur, employee_name: str, year: int):
+    cur.execute("""
+        INSERT INTO medical_leave_records (employee_name, year, total_medical_days)
+        VALUES (%s, %s, 0)
+        ON CONFLICT (employee_name, year) DO NOTHING;
+    """, (employee_name, year))
 
 def seed_employees_once():
     conn = get_db()
@@ -165,22 +187,17 @@ def calculate_prorated_entitlement(join_date_str, full_entitlement, year):
         join = datetime.strptime(join_date_str, "%Y-%m-%d").date()
     except Exception:
         return full_entitlement
-    # Joined before this year — full entitlement
     if join.year < year:
         return full_entitlement
-    # Joined this year — prorate by months remaining including join month
     if join.year == year:
         months_remaining = 12 - join.month + 1
         prorated = round((months_remaining / 12) * full_entitlement * 2) / 2
         return prorated
-    # Joined after this year — no entitlement yet
     return 0.0
+
 # ============================================================
 # ADMIN REQUIRED DECORATOR
-# FIX 1: Protect all admin routes properly
 # ============================================================
-
-from functools import wraps
 
 def admin_required(f):
     @wraps(f)
@@ -218,15 +235,21 @@ def download_excel():
         ORDER BY employee_name, year
     """)
     df_balances = pd.DataFrame(cur.fetchall())
+    cur.execute("""
+        SELECT employee_name, year, total_medical_days
+        FROM medical_leave_records
+        ORDER BY employee_name, year
+    """)
+    df_medical = pd.DataFrame(cur.fetchall())
     cur.close()
     conn.close()
     file_path = "leave_export.xlsx"
     with pd.ExcelWriter(file_path, engine="openpyxl") as writer:
         df_leaves.to_excel(writer, sheet_name="Leave Records", index=False)
         df_balances.to_excel(writer, sheet_name="Balances", index=False)
+        df_medical.to_excel(writer, sheet_name="Medical Leave", index=False)
     return send_file(file_path, as_attachment=True, download_name="leave_records.xlsx")
 
-# FIX 2: Corrected route parameter name from <n> to <name>
 @app.route("/balance/<name>")
 def balance(name):
     ensure_schema()
@@ -284,6 +307,7 @@ def apply_leave():
         conn = get_db()
         cur = conn.cursor()
         ensure_balance_row(cur, emp, year)
+        ensure_medical_row(cur, emp, year)
         cur.execute("""
             INSERT INTO leave_requests
             (employee_name, leave_type, start_date, end_date, days, year, status, reason, applied_on)
@@ -299,7 +323,6 @@ def apply_leave():
 
     return render_template("apply_leave.html", employees=employees)
 
-# FIX 2: Corrected route parameter name from <n> to <name>
 @app.route("/history/<name>")
 def history(name):
     ensure_schema()
@@ -338,7 +361,6 @@ def admin_logout():
 
 # ============================================================
 # ADMIN DASHBOARD
-# FIX 3: Filter by current month by default, with month selector
 # ============================================================
 
 @app.route("/admin")
@@ -353,7 +375,6 @@ def admin_dashboard():
     conn = get_db()
     cur = conn.cursor()
 
-    # FIX 3: Only show leaves for selected month, not the whole year
     cur.execute("""
         SELECT *
         FROM leave_requests
@@ -369,12 +390,15 @@ def admin_dashboard():
             %s AS year,
             COALESCE(lb.total_entitlement, e.entitlement, 0) AS total_entitlement,
             COALESCE(lb.used, 0) AS used,
-            COALESCE(lb.remaining, e.entitlement, 0) AS remaining
+            COALESCE(lb.remaining, 0) AS remaining,
+            COALESCE(ml.total_medical_days, 0) AS medical_days
         FROM employees e
         LEFT JOIN leave_balances lb
             ON lb.employee_name = e.name AND lb.year = %s
+        LEFT JOIN medical_leave_records ml
+            ON ml.employee_name = e.name AND ml.year = %s
         ORDER BY e.name
-    """, (year, year))
+    """, (year, year, year))
     balances = cur.fetchall()
 
     cur.close()
@@ -407,6 +431,7 @@ def update_employee_name():
         cur.execute("UPDATE employees SET name=%s WHERE name=%s", (new_name, old_name))
         cur.execute("UPDATE leave_requests SET employee_name=%s WHERE employee_name=%s", (new_name, old_name))
         cur.execute("UPDATE leave_balances SET employee_name=%s WHERE employee_name=%s", (new_name, old_name))
+        cur.execute("UPDATE medical_leave_records SET employee_name=%s WHERE employee_name=%s", (new_name, old_name))
         conn.commit()
     except Exception as e:
         conn.rollback()
@@ -414,7 +439,7 @@ def update_employee_name():
     finally:
         cur.close()
         conn.close()
-    flash(f"Employee renamed: {old_name} → {new_name}", "success")
+    flash(f"Employee renamed: {old_name} to {new_name}", "success")
     return redirect(url_for("admin_dashboard"))
 
 # ============================================================
@@ -444,33 +469,43 @@ def approve(lid):
     year = int(lr["year"])
     emp = lr["employee_name"]
     days = float(lr["days"] or 0)
+    ltype = lr["leave_type"]
 
-    ensure_balance_row(cur, emp, year)
-    cur.execute("""
-        SELECT remaining FROM leave_balances
-        WHERE employee_name=%s AND year=%s
-    """, (emp, year))
-    row = cur.fetchone()
-    remaining = float(row["remaining"]) if row else 0.0
+    if is_medical_leave(ltype):
+        ensure_medical_row(cur, emp, year)
+        cur.execute("""
+            UPDATE medical_leave_records
+            SET total_medical_days = total_medical_days + %s
+            WHERE employee_name=%s AND year=%s
+        """, (days, emp, year))
+    else:
+        ensure_balance_row(cur, emp, year)
+        cur.execute("""
+            SELECT remaining FROM leave_balances
+            WHERE employee_name=%s AND year=%s
+        """, (emp, year))
+        row = cur.fetchone()
+        remaining = float(row["remaining"]) if row else 0.0
 
-    if remaining < days:
-        cur.close()
-        conn.close()
-        flash("Insufficient leave balance", "danger")
-        return redirect(url_for("admin_dashboard", year=year))
+        if remaining < days:
+            cur.close()
+            conn.close()
+            flash("Insufficient leave balance", "danger")
+            return redirect(url_for("admin_dashboard", year=year))
 
-    cur.execute("""
-        UPDATE leave_balances
-        SET used = used + %s,
-            remaining = remaining - %s
-        WHERE employee_name=%s AND year=%s
-    """, (days, days, emp, year))
+        cur.execute("""
+            UPDATE leave_balances
+            SET used = used + %s,
+                remaining = remaining - %s
+            WHERE employee_name=%s AND year=%s
+        """, (days, days, emp, year))
+
     cur.execute("UPDATE leave_requests SET status='Approved' WHERE id=%s", (lid,))
     conn.commit()
     cur.close()
     conn.close()
 
-    send_email("Leave Approved", f"{emp}'s leave ({lr['start_date']} → {lr['end_date']}) approved.", to="claycorp177@gmail.com")
+    send_email("Leave Approved", f"{emp}'s leave ({lr['start_date']} to {lr['end_date']}) approved.", to="claycorp177@gmail.com")
     flash("Leave approved", "success")
     return redirect(url_for("admin_dashboard", year=year))
 
@@ -483,14 +518,20 @@ def reject(lid):
     cur.execute("SELECT * FROM leave_requests WHERE id=%s", (lid,))
     lr = cur.fetchone()
     if lr:
-        # If it was approved, restore the balance
         if lr["status"] == "Approved":
-            cur.execute("""
-                UPDATE leave_balances
-                SET used = GREATEST(used - %s, 0),
-                    remaining = remaining + %s
-                WHERE employee_name=%s AND year=%s
-            """, (lr["days"], lr["days"], lr["employee_name"], lr["year"]))
+            if is_medical_leave(lr["leave_type"]):
+                cur.execute("""
+                    UPDATE medical_leave_records
+                    SET total_medical_days = GREATEST(total_medical_days - %s, 0)
+                    WHERE employee_name=%s AND year=%s
+                """, (lr["days"], lr["employee_name"], lr["year"]))
+            else:
+                cur.execute("""
+                    UPDATE leave_balances
+                    SET used = GREATEST(used - %s, 0),
+                        remaining = remaining + %s
+                    WHERE employee_name=%s AND year=%s
+                """, (lr["days"], lr["days"], lr["employee_name"], lr["year"]))
         cur.execute("UPDATE leave_requests SET status='Rejected' WHERE id=%s", (lid,))
         conn.commit()
         send_email("Leave Rejected", f"{lr['employee_name']}'s leave ({lr['start_date']} to {lr['end_date']}) rejected.", to="claycorp177@gmail.com")
@@ -559,9 +600,10 @@ def update_balance():
     ensure_balance_row(cur, name, year)
     cur.execute("""
         UPDATE leave_balances
-        SET remaining=%s
+        SET remaining = %s,
+            used = GREATEST(total_entitlement - %s, 0)
         WHERE employee_name=%s AND year=%s
-    """, (bal_val, name, year))
+    """, (bal_val, bal_val, name, year))
     conn.commit()
     cur.close()
     conn.close()
@@ -595,6 +637,7 @@ def add_employee():
     """, (name, "Staff", join_date, ent_val))
     conn.commit()
     ensure_balance_row(cur, name, datetime.now().year)
+    ensure_medical_row(cur, name, datetime.now().year)
     conn.commit()
     cur.close()
     conn.close()
@@ -613,6 +656,7 @@ def delete_employee():
     cur = conn.cursor()
     cur.execute("DELETE FROM leave_balances WHERE employee_name=%s", (name,))
     cur.execute("DELETE FROM leave_requests WHERE employee_name=%s", (name,))
+    cur.execute("DELETE FROM medical_leave_records WHERE employee_name=%s", (name,))
     cur.execute("DELETE FROM employees WHERE name=%s", (name,))
     conn.commit()
     cur.close()
@@ -630,13 +674,13 @@ def test_email():
     return "Test email sent. Check logs."
 
 # ============================================================
-# SIMPLE MONTHLY CALENDAR API
+# CALENDAR API
 # ============================================================
 
 @app.route("/calendar")
 def calendar_api():
     ensure_schema()
-    month = request.args.get("month")  # YYYY-MM
+    month = request.args.get("month")
     if not month:
         return jsonify({"error": "month=YYYY-MM required"}), 400
     try:
